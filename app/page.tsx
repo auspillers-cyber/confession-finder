@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import churchesData from "../data/churches_with_confessions_only.json";
 
 type ConfessionSlot = {
@@ -41,14 +41,6 @@ type Church = {
   confessionTimes: ConfessionTime[];
 };
 
-type FilterOption =
-  | "next"
-  | "today"
-  | "tomorrow"
-  | "thisWeek"
-  | "saturday"
-  | "sunday";
-
 type ActiveLocation = {
   lat: number;
   lng: number;
@@ -62,13 +54,19 @@ type ChurchResult = Church & {
   bestScore: number;
 };
 
+type Suggestion = {
+  label: string;
+  lat: number;
+  lng: number;
+};
+
 type LocationStatus =
   | "idle"
   | "loading"
   | "granted"
   | "denied"
   | "unsupported"
-  | "manual-loading"
+  | "suggesting"
   | "manual-granted"
   | "manual-error";
 
@@ -278,15 +276,6 @@ function getTodayName(): string {
   return dayOrder[getTodayIndex()];
 }
 
-function getTomorrowName(): string {
-  return dayOrder[(getTodayIndex() + 1) % 7];
-}
-
-function getTomorrowWeekday(): boolean {
-  const tomorrowIndex = (getTodayIndex() + 1) % 7;
-  return tomorrowIndex >= 1 && tomorrowIndex <= 5;
-}
-
 function getSlotScore(slot: ConfessionTime): number {
   const now = new Date();
   const currentDayIndex = now.getDay();
@@ -324,57 +313,13 @@ function getSlotScore(slot: ConfessionTime): number {
   return daysAway * 1440 + slotMinutes;
 }
 
-function getSlotsForFilter(church: Church, filter: FilterOption): ConfessionTime[] {
-  const today = getTodayName();
-  const tomorrow = getTomorrowName();
-  const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
-
-  return church.confessionTimes.filter((slot) => {
-    const slotMinutes = parseTimeToMinutes(slot.start);
-    if (slotMinutes === null) return false;
-
-    switch (filter) {
-      case "next":
-        return true;
-
-      case "today":
-        if (slot.day === today) return slotMinutes >= nowMinutes;
-        if (slot.day === "Daily") return slotMinutes >= nowMinutes;
-        if (slot.day === "Weekdays") {
-          const todayIndex = getTodayIndex();
-          return todayIndex >= 1 && todayIndex <= 5 && slotMinutes >= nowMinutes;
-        }
-        return false;
-
-      case "tomorrow":
-        if (slot.day === tomorrow) return true;
-        if (slot.day === "Daily") return true;
-        if (slot.day === "Weekdays") return getTomorrowWeekday();
-        return false;
-
-      case "thisWeek":
-        return getSlotScore(slot) < Number.POSITIVE_INFINITY;
-
-      case "saturday":
-        return slot.day === "Saturday";
-
-      case "sunday":
-        return slot.day === "Sunday";
-
-      default:
-        return false;
-    }
-  });
-}
-
-function getBestSlotForFilter(church: Church, filter: FilterOption): ConfessionTime | null {
-  const slots = getSlotsForFilter(church, filter);
-  if (!slots.length) return null;
+function getBestSlot(church: Church): ConfessionTime | null {
+  if (!church.confessionTimes.length) return null;
 
   let bestSlot: ConfessionTime | null = null;
   let bestScore = Number.POSITIVE_INFINITY;
 
-  for (const slot of slots) {
+  for (const slot of church.confessionTimes) {
     const score = getSlotScore(slot);
     if (score < bestScore) {
       bestScore = score;
@@ -385,8 +330,8 @@ function getBestSlotForFilter(church: Church, filter: FilterOption): ConfessionT
   return bestSlot;
 }
 
-function getBestScoreForFilter(church: Church, filter: FilterOption): number {
-  const bestSlot = getBestSlotForFilter(church, filter);
+function getBestScore(church: Church): number {
+  const bestSlot = getBestSlot(church);
   if (!bestSlot) return Number.POSITIVE_INFINITY;
   return getSlotScore(bestSlot);
 }
@@ -445,26 +390,29 @@ function sortSlotsForDisplay(slots: ConfessionTime[]): ConfessionTime[] {
 }
 
 export default function Home() {
-  const [filter, setFilter] = useState<FilterOption>("next");
   const [visibleCount, setVisibleCount] = useState(30);
 
   const [activeLocation, setActiveLocation] = useState<ActiveLocation | null>(null);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("idle");
   const [locationMessage, setLocationMessage] = useState(
-    "Use your current location or enter an address to find the closest confession times."
+    "Use your current location or enter your home address."
   );
 
   const [manualAddress, setManualAddress] = useState("");
-  const [showManualAddressBox, setShowManualAddressBox] = useState(false);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showEditor, setShowEditor] = useState(false);
+
+  const debounceRef = useRef<number | null>(null);
+  const blurTimeoutRef = useRef<number | null>(null);
 
   const requestLocation = useCallback(() => {
     if (typeof window === "undefined") return;
 
     if (!navigator.geolocation) {
       setLocationStatus("unsupported");
-      setShowManualAddressBox(true);
       setLocationMessage(
-        "Location is not supported on this device. Enter a home or current address below."
+        "Location is not supported on this device. Enter your home address below."
       );
       return;
     }
@@ -481,26 +429,23 @@ export default function Home() {
           source: "gps",
         });
         setLocationStatus("granted");
-        setShowManualAddressBox(false);
+        setShowEditor(false);
+        setShowSuggestions(false);
         setLocationMessage("Showing churches closest to your location.");
       },
       (error) => {
         console.error("Geolocation error:", error);
         setLocationStatus("denied");
-        setShowManualAddressBox(true);
+        setShowEditor(true);
 
         if (error.code === error.PERMISSION_DENIED) {
           setLocationMessage(
-            "Location is turned off for Safari. Enable it in Safari site settings, or enter a home or current address below."
+            "Location is turned off for Safari. Enable it in Safari site settings, or enter your home address below."
           );
         } else if (error.code === error.TIMEOUT) {
-          setLocationMessage(
-            "Location request timed out. Enter a home or current address below."
-          );
+          setLocationMessage("Location request timed out. Enter your home address below.");
         } else {
-          setLocationMessage(
-            "Could not get your location. Enter a home or current address below."
-          );
+          setLocationMessage("Could not get your location. Enter your home address below.");
         }
       },
       {
@@ -511,103 +456,120 @@ export default function Home() {
     );
   }, []);
 
-  const setManualLocation = useCallback(async () => {
-    const query = clean(manualAddress);
-
-    if (!query) {
-      setLocationStatus("manual-error");
-      setLocationMessage("Please enter a home or current address.");
+  useEffect(() => {
+    if (!clean(manualAddress) || activeLocation) {
+      setSuggestions([]);
+      setShowSuggestions(false);
       return;
     }
 
-    try {
-      setLocationStatus("manual-loading");
-      setLocationMessage("Finding that address...");
-
-      const url = new URL("https://nominatim.openstreetmap.org/search");
-      url.searchParams.set("q", query);
-      url.searchParams.set("format", "jsonv2");
-      url.searchParams.set("limit", "1");
-
-      const res = await fetch(url.toString(), {
-        headers: {
-          Accept: "application/json",
-        },
-      });
-
-      if (!res.ok) {
-        throw new Error("Geocoding request failed");
-      }
-
-      const data: Array<{
-        lat: string;
-        lon: string;
-      }> = await res.json();
-
-      if (!data.length) {
-        setLocationStatus("manual-error");
-        setLocationMessage(
-          "We couldn’t find that address. Try a more complete address or city/state."
-        );
-        return;
-      }
-
-      const first = data[0];
-      const lat = Number(first.lat);
-      const lng = Number(first.lon);
-
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-        setLocationStatus("manual-error");
-        setLocationMessage("We couldn’t use that address. Try again.");
-        return;
-      }
-
-      setActiveLocation({
-        lat,
-        lng,
-        label: query,
-        source: "manual",
-      });
-      setLocationStatus("manual-granted");
-      setShowManualAddressBox(false);
-      setLocationMessage(`Showing churches closest to ${query}.`);
-    } catch (error) {
-      console.error(error);
-      setLocationStatus("manual-error");
-      setLocationMessage(
-        "We couldn’t find that address right now. Try again in a moment."
-      );
+    if (debounceRef.current) {
+      window.clearTimeout(debounceRef.current);
     }
-  }, [manualAddress]);
+
+    debounceRef.current = window.setTimeout(async () => {
+      const query = clean(manualAddress);
+      if (query.length < 3) {
+        setSuggestions([]);
+        setShowSuggestions(false);
+        return;
+      }
+
+      try {
+        setLocationStatus("suggesting");
+
+        const url = new URL("https://nominatim.openstreetmap.org/search");
+        url.searchParams.set("q", query);
+        url.searchParams.set("format", "jsonv2");
+        url.searchParams.set("addressdetails", "1");
+        url.searchParams.set("limit", "5");
+        url.searchParams.set("countrycodes", "us");
+
+        const res = await fetch(url.toString(), {
+          headers: {
+            Accept: "application/json",
+          },
+        });
+
+        if (!res.ok) {
+          throw new Error("Suggestion request failed");
+        }
+
+        const data: Array<{
+          display_name: string;
+          lat: string;
+          lon: string;
+        }> = await res.json();
+
+        const mapped = data
+          .map((item) => ({
+            label: item.display_name,
+            lat: Number(item.lat),
+            lng: Number(item.lon),
+          }))
+          .filter(
+            (item) => Number.isFinite(item.lat) && Number.isFinite(item.lng)
+          );
+
+        setSuggestions(mapped);
+        setShowSuggestions(mapped.length > 0);
+        setLocationStatus("idle");
+      } catch (error) {
+        console.error(error);
+        setSuggestions([]);
+        setShowSuggestions(false);
+        setLocationStatus("idle");
+      }
+    }, 300);
+
+    return () => {
+      if (debounceRef.current) {
+        window.clearTimeout(debounceRef.current);
+      }
+    };
+  }, [manualAddress, activeLocation]);
+
+  const chooseSuggestion = useCallback((suggestion: Suggestion) => {
+    setManualAddress(suggestion.label);
+    setActiveLocation({
+      lat: suggestion.lat,
+      lng: suggestion.lng,
+      label: suggestion.label,
+      source: "manual",
+    });
+    setLocationStatus("manual-granted");
+    setLocationMessage(`Showing churches closest to ${suggestion.label}.`);
+    setSuggestions([]);
+    setShowSuggestions(false);
+    setShowEditor(false);
+  }, []);
 
   const clearLocation = useCallback(() => {
     setActiveLocation(null);
     setLocationStatus("idle");
-    setLocationMessage(
-      "Use your current location or enter an address to find the closest confession times."
-    );
+    setLocationMessage("Use your current location or enter your home address.");
     setManualAddress("");
-    setShowManualAddressBox(false);
+    setSuggestions([]);
+    setShowSuggestions(false);
+    setShowEditor(false);
   }, []);
 
-  const changeLocation = useCallback(() => {
-    setShowManualAddressBox(true);
-    setLocationMessage(
-      "Use your current location again, or enter a different home or current address below."
-    );
+  const openEditor = useCallback(() => {
+    setShowEditor(true);
+    setLocationMessage("Use your current location again, or enter a different address.");
   }, []);
 
   useEffect(() => {
     setVisibleCount(30);
-  }, [filter]);
+  }, [activeLocation]);
 
   const filteredChurches = useMemo(() => {
     const baseResults: ChurchResult[] = churches
-      .filter((church) => getBestSlotForFilter(church, filter) !== null)
+      .filter((church) => getBestSlot(church) !== null)
       .map((church) => {
         const distanceMiles = getDistanceMiles(church, activeLocation);
-        const bestSlot = getBestSlotForFilter(church, filter);
-        const bestScore = getBestScoreForFilter(church, filter);
+        const bestSlot = getBestSlot(church);
+        const bestScore = getBestScore(church);
 
         return {
           ...church,
@@ -691,14 +653,12 @@ export default function Home() {
       });
 
     return [...withDistance, ...withoutDistance];
-  }, [filter, activeLocation]);
+  }, [activeLocation]);
 
   const visibleChurches = filteredChurches.slice(0, visibleCount);
-  const isLoadingLocation =
-    locationStatus === "loading" || locationStatus === "manual-loading";
-  const hasResolvedLocation = !!activeLocation;
+  const isLoadingLocation = locationStatus === "loading";
 
-  if (!hasResolvedLocation) {
+  if (!activeLocation) {
     return (
       <main
         style={{
@@ -714,162 +674,192 @@ export default function Home() {
         }}
       >
         <div style={{ width: "100%" }}>
-          <h1 style={{ fontSize: "48px", lineHeight: 1.1, marginBottom: "14px" }}>
-            Find Confession Near You
+          <h1 style={{ fontSize: "46px", lineHeight: 1.1, marginBottom: "14px" }}>
+            
           </h1>
 
           <p
             style={{
               fontSize: "20px",
               color: "#555555",
-              marginBottom: "28px",
-              maxWidth: "620px",
+              marginBottom: "14px",
+              maxWidth: "640px",
               lineHeight: 1.5,
             }}
           >
-            Use your current location or enter a home or current address to find
-            the nearest confession times.
+            “Confession is the soul&apos;s bath. Even a room where no one lives
+            gathers dust; return after a week and you will see that it needs
+            dusting again.”
+          </p>
+
+          <p
+            style={{
+              fontSize: "18px",
+              color: "#555555",
+              marginBottom: "26px",
+              fontStyle: "italic",
+            }}
+          >
+            — Padre Pio
           </p>
 
           <div
             style={{
               border: "1px solid #e8e8e8",
               borderRadius: "18px",
-              padding: "22px",
+              padding: "20px",
               backgroundColor: "#ffffff",
               boxShadow: "0 8px 30px rgba(0,0,0,0.04)",
             }}
           >
             <div
               style={{
-                display: "flex",
-                gap: "12px",
-                flexWrap: "wrap",
-                marginBottom: "14px",
+                fontSize: "22px",
+                fontWeight: 700,
+                marginBottom: "12px",
               }}
             >
-              <select
-                value={filter}
-                onChange={(e) => setFilter(e.target.value as FilterOption)}
+              Find Confession Near You
+            </div>
+
+            <div style={{ position: "relative" }}>
+              <div
                 style={{
-                  padding: "14px 16px",
-                  fontSize: "16px",
-                  border: "1px solid #d6d6d6",
-                  borderRadius: "10px",
+                  display: "flex",
+                  alignItems: "center",
+                  border: "1px solid #cccccc",
+                  borderRadius: "14px",
+                  overflow: "hidden",
                   backgroundColor: "#ffffff",
                 }}
               >
-                <option value="next">Next Available</option>
-                <option value="today">Today</option>
-                <option value="tomorrow">Tomorrow</option>
-                <option value="thisWeek">This week</option>
-                <option value="saturday">Saturday</option>
-                <option value="sunday">Sunday</option>
-              </select>
+                <input
+                  type="text"
+                  placeholder="Search home address"
+                  value={manualAddress}
+                  onChange={(e) => {
+                    setManualAddress(e.target.value);
+                    setShowEditor(true);
+                  }}
+                  onFocus={() => {
+                    if (suggestions.length) setShowSuggestions(true);
+                  }}
+                  onBlur={() => {
+                    if (blurTimeoutRef.current) {
+                      window.clearTimeout(blurTimeoutRef.current);
+                    }
+                    blurTimeoutRef.current = window.setTimeout(() => {
+                      setShowSuggestions(false);
+                    }, 150);
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "16px 18px",
+                    fontSize: "18px",
+                    border: "none",
+                    outline: "none",
+                  }}
+                />
 
-              <button
-                onClick={requestLocation}
-                disabled={isLoadingLocation}
-                style={{
-                  padding: "14px 18px",
-                  fontSize: "16px",
-                  border: "1px solid #111111",
-                  borderRadius: "10px",
-                  backgroundColor: isLoadingLocation ? "#f3f3f3" : "#111111",
-                  color: isLoadingLocation ? "#555555" : "#ffffff",
-                  cursor: isLoadingLocation ? "default" : "pointer",
-                  fontWeight: 600,
-                }}
-              >
-                {locationStatus === "loading" ? "Getting Location..." : "Use My Location"}
-              </button>
+                <button
+                  onClick={requestLocation}
+                  aria-label="Use current location"
+                  style={{
+                    border: "none",
+                    borderLeft: "1px solid #e5e5e5",
+                    backgroundColor: "#ffffff",
+                    width: "58px",
+                    height: "58px",
+                    fontSize: "24px",
+                    cursor: "pointer",
+                  }}
+                >
+                  ⌖
+                </button>
+              </div>
+
+              {showSuggestions && suggestions.length > 0 && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 8px)",
+                    left: 0,
+                    right: 0,
+                    backgroundColor: "#ffffff",
+                    border: "1px solid #dddddd",
+                    borderRadius: "14px",
+                    boxShadow: "0 10px 30px rgba(0,0,0,0.10)",
+                    overflow: "hidden",
+                    zIndex: 50,
+                  }}
+                >
+                  {suggestions.map((suggestion, index) => (
+                    <button
+                      key={`${suggestion.label}-${index}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => chooseSuggestion(suggestion)}
+                      style={{
+                        display: "block",
+                        width: "100%",
+                        textAlign: "left",
+                        padding: "14px 16px",
+                        backgroundColor: "#ffffff",
+                        border: "none",
+                        borderBottom:
+                          index === suggestions.length - 1
+                            ? "none"
+                            : "1px solid #f1f1f1",
+                        cursor: "pointer",
+                        fontSize: "15px",
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      {suggestion.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div
               style={{
+                marginTop: "12px",
                 color: "#666666",
                 fontSize: "14px",
                 lineHeight: 1.5,
-                marginBottom: showManualAddressBox ? "14px" : 0,
               }}
             >
               {locationMessage}
             </div>
 
-            {showManualAddressBox && (
+            {showEditor && locationStatus === "denied" && (
               <div
                 style={{
                   marginTop: "14px",
-                  padding: "18px",
+                  padding: "16px",
                   border: "1px solid #ecd7ae",
                   borderRadius: "14px",
                   backgroundColor: "#fffaf2",
+                  fontSize: "14px",
+                  color: "#555555",
+                  lineHeight: 1.5,
                 }}
               >
-                <div
-                  style={{
-                    fontWeight: 700,
-                    marginBottom: "8px",
-                    fontSize: "18px",
-                  }}
-                >
-                  Location is turned off for Safari
-                </div>
+                Location is turned off for Safari. Enable it in Safari site
+                settings, or keep typing your home address above and choose one
+                of the suggestions.
+              </div>
+            )}
 
-                <p
-                  style={{
-                    margin: "0 0 12px 0",
-                    color: "#555555",
-                    fontSize: "15px",
-                    lineHeight: 1.5,
-                  }}
-                >
-                  Enable it in Safari site settings, or enter a home or current
-                  address below to sort churches closest to you.
-                </p>
-
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "10px",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <input
-                    type="text"
-                    placeholder="Enter home or current address"
-                    value={manualAddress}
-                    onChange={(e) => setManualAddress(e.target.value)}
-                    style={{
-                      padding: "14px 16px",
-                      fontSize: "16px",
-                      minWidth: "280px",
-                      border: "1px solid #d6d6d6",
-                      borderRadius: "10px",
-                      flex: "1 1 320px",
-                    }}
-                  />
-
-                  <button
-                    onClick={setManualLocation}
-                    disabled={locationStatus === "manual-loading"}
-                    style={{
-                      padding: "14px 18px",
-                      fontSize: "16px",
-                      border: "1px solid #111111",
-                      borderRadius: "10px",
-                      backgroundColor:
-                        locationStatus === "manual-loading" ? "#f3f3f3" : "#111111",
-                      color:
-                        locationStatus === "manual-loading" ? "#555555" : "#ffffff",
-                      cursor:
-                        locationStatus === "manual-loading" ? "default" : "pointer",
-                      fontWeight: 600,
-                    }}
-                  >
-                    {locationStatus === "manual-loading" ? "Finding Address..." : "Set Location"}
-                  </button>
-                </div>
+            {isLoadingLocation && (
+              <div
+                style={{
+                  marginTop: "14px",
+                  fontSize: "14px",
+                  color: "#555555",
+                }}
+              >
+                Getting your location...
               </div>
             )}
           </div>
@@ -926,27 +916,8 @@ export default function Home() {
             ←
           </button>
 
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value as FilterOption)}
-            style={{
-              padding: "10px 12px",
-              fontSize: "15px",
-              border: "1px solid #cccccc",
-              borderRadius: "10px",
-              backgroundColor: "#ffffff",
-            }}
-          >
-            <option value="next">Next Available</option>
-            <option value="today">Today</option>
-            <option value="tomorrow">Tomorrow</option>
-            <option value="thisWeek">This week</option>
-            <option value="saturday">Saturday</option>
-            <option value="sunday">Sunday</option>
-          </select>
-
           <button
-            onClick={changeLocation}
+            onClick={openEditor}
             style={{
               padding: "10px 12px",
               fontSize: "15px",
@@ -961,99 +932,122 @@ export default function Home() {
           </button>
         </div>
 
-        {showManualAddressBox && (
+        {showEditor && (
           <div
             style={{
               marginTop: "10px",
-              padding: "12px",
-              border: "1px solid #e7e7e7",
-              borderRadius: "12px",
-              backgroundColor: "#fafafa",
+              position: "relative",
             }}
           >
             <div
               style={{
                 display: "flex",
-                gap: "8px",
-                flexWrap: "wrap",
-                marginBottom: "8px",
+                alignItems: "center",
+                border: "1px solid #cccccc",
+                borderRadius: "14px",
+                overflow: "hidden",
+                backgroundColor: "#ffffff",
               }}
             >
-              <button
-                onClick={requestLocation}
-                disabled={isLoadingLocation}
-                style={{
-                  padding: "10px 12px",
-                  fontSize: "15px",
-                  border: "1px solid #111111",
-                  borderRadius: "10px",
-                  backgroundColor: "#111111",
-                  color: "#ffffff",
-                  cursor: isLoadingLocation ? "default" : "pointer",
-                  fontWeight: 600,
-                }}
-              >
-                {locationStatus === "loading" ? "Getting Location..." : "Use My Location"}
-              </button>
-
               <input
                 type="text"
-                placeholder="Enter home or current address"
+                placeholder="Search home address"
                 value={manualAddress}
-                onChange={(e) => setManualAddress(e.target.value)}
+                onChange={(e) => {
+                  setManualAddress(e.target.value);
+                }}
+                onFocus={() => {
+                  if (suggestions.length) setShowSuggestions(true);
+                }}
+                onBlur={() => {
+                  if (blurTimeoutRef.current) {
+                    window.clearTimeout(blurTimeoutRef.current);
+                  }
+                  blurTimeoutRef.current = window.setTimeout(() => {
+                    setShowSuggestions(false);
+                  }, 150);
+                }}
                 style={{
-                  padding: "10px 12px",
-                  fontSize: "15px",
-                  minWidth: "240px",
-                  border: "1px solid #cccccc",
-                  borderRadius: "10px",
-                  flex: "1 1 280px",
+                  flex: 1,
+                  padding: "12px 14px",
+                  fontSize: "16px",
+                  border: "none",
+                  outline: "none",
                 }}
               />
 
               <button
-                onClick={setManualLocation}
-                disabled={locationStatus === "manual-loading"}
+                onClick={requestLocation}
+                aria-label="Use current location"
                 style={{
-                  padding: "10px 12px",
-                  fontSize: "15px",
-                  border: "1px solid #111111",
-                  borderRadius: "10px",
-                  backgroundColor:
-                    locationStatus === "manual-loading" ? "#f3f3f3" : "#111111",
-                  color:
-                    locationStatus === "manual-loading" ? "#555555" : "#ffffff",
-                  cursor:
-                    locationStatus === "manual-loading" ? "default" : "pointer",
-                  fontWeight: 600,
+                  border: "none",
+                  borderLeft: "1px solid #e5e5e5",
+                  backgroundColor: "#ffffff",
+                  width: "52px",
+                  height: "52px",
+                  fontSize: "22px",
+                  cursor: "pointer",
                 }}
               >
-                {locationStatus === "manual-loading" ? "Finding Address..." : "Set Location"}
+                ⌖
               </button>
             </div>
 
-            <div style={{ color: "#666666", fontSize: "13px", lineHeight: 1.4 }}>
+            {showSuggestions && suggestions.length > 0 && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 8px)",
+                  left: 0,
+                  right: 0,
+                  backgroundColor: "#ffffff",
+                  border: "1px solid #dddddd",
+                  borderRadius: "14px",
+                  boxShadow: "0 10px 30px rgba(0,0,0,0.10)",
+                  overflow: "hidden",
+                  zIndex: 50,
+                }}
+              >
+                {suggestions.map((suggestion, index) => (
+                  <button
+                    key={`${suggestion.label}-${index}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => chooseSuggestion(suggestion)}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "14px 16px",
+                      backgroundColor: "#ffffff",
+                      border: "none",
+                      borderBottom:
+                        index === suggestions.length - 1
+                          ? "none"
+                          : "1px solid #f1f1f1",
+                      cursor: "pointer",
+                      fontSize: "15px",
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    {suggestion.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div
+              style={{
+                marginTop: "8px",
+                color: "#666666",
+                fontSize: "13px",
+                lineHeight: 1.4,
+              }}
+            >
               {locationMessage}
             </div>
           </div>
         )}
       </div>
-
-      {isLoadingLocation ? (
-        <div
-          style={{
-            border: "1px solid #dddddd",
-            borderRadius: "12px",
-            padding: "18px",
-            backgroundColor: "#ffffff",
-            marginBottom: "16px",
-          }}
-        >
-          <p style={{ color: "#555555", margin: 0 }}>
-            Getting churches nearest to you...
-          </p>
-        </div>
-      ) : null}
 
       <div style={{ display: "grid", gap: "16px" }}>
         {visibleChurches.map((church) => {
@@ -1099,7 +1093,7 @@ export default function Home() {
                 </p>
 
                 <div style={{ display: "grid", gap: "10px" }}>
-                  {sortSlotsForDisplay(getSlotsForFilter(church, filter)).map((slot, index) => (
+                  {sortSlotsForDisplay(church.confessionTimes).map((slot, index) => (
                     <div
                       key={`${church.id}-${slot.day}-${slot.start}-${index}`}
                       style={{
