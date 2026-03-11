@@ -49,9 +49,11 @@ type FilterOption =
   | "saturday"
   | "sunday";
 
-type UserLocation = {
+type ActiveLocation = {
   lat: number;
   lng: number;
+  label: string;
+  source: "gps" | "manual";
 };
 
 type ChurchResult = Church & {
@@ -65,7 +67,10 @@ type LocationStatus =
   | "loading"
   | "granted"
   | "denied"
-  | "unsupported";
+  | "unsupported"
+  | "manual-loading"
+  | "manual-granted"
+  | "manual-error";
 
 const rawChurches = churchesData as RawChurch[];
 
@@ -407,13 +412,13 @@ function haversineMiles(
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-function getDistanceMiles(church: Church, userLocation: UserLocation | null): number | null {
-  if (!userLocation) return null;
+function getDistanceMiles(church: Church, activeLocation: ActiveLocation | null): number | null {
+  if (!activeLocation) return null;
   if (church.latitude === null || church.longitude === null) return null;
 
   return haversineMiles(
-    userLocation.lat,
-    userLocation.lng,
+    activeLocation.lat,
+    activeLocation.lng,
     church.latitude,
     church.longitude
   );
@@ -443,19 +448,24 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterOption>("next");
   const [visibleCount, setVisibleCount] = useState(30);
-  const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
+
+  const [activeLocation, setActiveLocation] = useState<ActiveLocation | null>(null);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("idle");
   const [locationMessage, setLocationMessage] = useState(
     "Tap Use My Location to sort churches nearest to you."
   );
+
+  const [manualAddress, setManualAddress] = useState("");
+  const [showManualAddressBox, setShowManualAddressBox] = useState(false);
 
   const requestLocation = useCallback(() => {
     if (typeof window === "undefined") return;
 
     if (!navigator.geolocation) {
       setLocationStatus("unsupported");
+      setShowManualAddressBox(true);
       setLocationMessage(
-        "Location is not supported on this device. Showing results by next upcoming confession."
+        "Location is not supported on this device. Enter a home or current address below to sort churches closest to you."
       );
       return;
     }
@@ -465,31 +475,34 @@ export default function Home() {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        setUserLocation({
+        setActiveLocation({
           lat: position.coords.latitude,
           lng: position.coords.longitude,
+          label: "Current location",
+          source: "gps",
         });
         setLocationStatus("granted");
+        setShowManualAddressBox(false);
         setLocationMessage(
           "Sorted by closest churches first, then next upcoming confession."
         );
       },
       (error) => {
         console.error("Geolocation error:", error);
-        setUserLocation(null);
         setLocationStatus("denied");
+        setShowManualAddressBox(true);
 
         if (error.code === error.PERMISSION_DENIED) {
           setLocationMessage(
-            "Location permission was denied. Showing results by next upcoming confession."
+            "Location is turned off for Safari. Enable it in Safari site settings, or enter a home or current address below to sort churches closest to you."
           );
         } else if (error.code === error.TIMEOUT) {
           setLocationMessage(
-            "Location request timed out. Showing results by next upcoming confession."
+            "Location request timed out. Enter a home or current address below to sort churches closest to you."
           );
         } else {
           setLocationMessage(
-            "Could not get your location. Showing results by next upcoming confession."
+            "Could not get your location. Enter a home or current address below to sort churches closest to you."
           );
         }
       },
@@ -499,6 +512,83 @@ export default function Home() {
         maximumAge: 0,
       }
     );
+  }, []);
+
+  const setManualLocation = useCallback(async () => {
+    const query = clean(manualAddress);
+
+    if (!query) {
+      setLocationStatus("manual-error");
+      setLocationMessage("Please enter a home or current address.");
+      return;
+    }
+
+    try {
+      setLocationStatus("manual-loading");
+      setLocationMessage("Finding that address...");
+
+      const url = new URL("https://nominatim.openstreetmap.org/search");
+      url.searchParams.set("q", query);
+      url.searchParams.set("format", "jsonv2");
+      url.searchParams.set("limit", "1");
+
+      const res = await fetch(url.toString(), {
+        headers: {
+          Accept: "application/json",
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error("Geocoding request failed");
+      }
+
+      const data: Array<{
+        lat: string;
+        lon: string;
+        display_name: string;
+      }> = await res.json();
+
+      if (!data.length) {
+        setLocationStatus("manual-error");
+        setLocationMessage(
+          "We couldn’t find that address. Try a more complete address or city/state."
+        );
+        return;
+      }
+
+      const first = data[0];
+      const lat = Number(first.lat);
+      const lng = Number(first.lon);
+
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        setLocationStatus("manual-error");
+        setLocationMessage("We couldn’t use that address. Try again.");
+        return;
+      }
+
+      setActiveLocation({
+        lat,
+        lng,
+        label: query,
+        source: "manual",
+      });
+      setLocationStatus("manual-granted");
+      setLocationMessage(`Sorted by closest churches to: ${query}`);
+    } catch (error) {
+      console.error(error);
+      setLocationStatus("manual-error");
+      setLocationMessage(
+        "We couldn’t find that address right now. Try again in a moment."
+      );
+    }
+  }, [manualAddress]);
+
+  const clearLocation = useCallback(() => {
+    setActiveLocation(null);
+    setLocationStatus("idle");
+    setLocationMessage("Tap Use My Location to sort churches nearest to you.");
+    setManualAddress("");
+    setShowManualAddressBox(false);
   }, []);
 
   useEffect(() => {
@@ -522,7 +612,7 @@ export default function Home() {
         return getBestSlotForFilter(church, filter) !== null;
       })
       .map((church) => {
-        const distanceMiles = getDistanceMiles(church, userLocation);
+        const distanceMiles = getDistanceMiles(church, activeLocation);
         const bestSlot = getBestSlotForFilter(church, filter);
         const bestScore = getBestScoreForFilter(church, filter);
 
@@ -608,10 +698,11 @@ export default function Home() {
       });
 
     return [...withDistance, ...withoutDistance];
-  }, [search, filter, userLocation]);
+  }, [search, filter, activeLocation]);
 
   const visibleChurches = filteredChurches.slice(0, visibleCount);
-  const isLoadingLocation = locationStatus === "loading";
+  const isLoadingLocation =
+    locationStatus === "loading" || locationStatus === "manual-loading";
 
   return (
     <main
@@ -664,6 +755,7 @@ export default function Home() {
               minWidth: "280px",
               border: "1px solid #cccccc",
               borderRadius: "8px",
+              flex: "1 1 320px",
             }}
           />
 
@@ -698,13 +790,121 @@ export default function Home() {
               cursor: isLoadingLocation ? "default" : "pointer",
             }}
           >
-            {isLoadingLocation ? "Getting Location..." : "Use My Location"}
+            {locationStatus === "loading" ? "Getting Location..." : "Use My Location"}
           </button>
+
+          {activeLocation && (
+            <button
+              onClick={clearLocation}
+              style={{
+                padding: "12px 16px",
+                fontSize: "16px",
+                border: "1px solid #cccccc",
+                borderRadius: "8px",
+                backgroundColor: "#ffffff",
+                color: "#111111",
+                cursor: "pointer",
+              }}
+            >
+              Clear Location
+            </button>
+          )}
         </div>
 
-        <div style={{ color: "#555555", fontSize: "14px" }}>
+        <div style={{ color: "#555555", fontSize: "14px", marginBottom: showManualAddressBox ? "12px" : 0 }}>
           {locationMessage}
         </div>
+
+        {activeLocation && (
+          <div
+            style={{
+              marginBottom: "12px",
+              padding: "12px 14px",
+              border: "1px solid #d9e7ff",
+              borderRadius: "10px",
+              backgroundColor: "#f7fbff",
+              color: "#1a1a1a",
+              fontSize: "14px",
+            }}
+          >
+            Using location: <strong>{activeLocation.label}</strong>
+          </div>
+        )}
+
+        {showManualAddressBox && (
+          <div
+            style={{
+              padding: "16px",
+              border: "1px solid #f0d9b5",
+              borderRadius: "12px",
+              backgroundColor: "#fffaf2",
+            }}
+          >
+            <div
+              style={{
+                fontWeight: 600,
+                marginBottom: "8px",
+                fontSize: "16px",
+              }}
+            >
+              Location is turned off for Safari
+            </div>
+
+            <p
+              style={{
+                margin: "0 0 12px 0",
+                color: "#555555",
+                fontSize: "14px",
+                lineHeight: 1.5,
+              }}
+            >
+              Enable it in Safari site settings, or enter a home or current address
+              below to sort churches closest to you.
+            </p>
+
+            <div
+              style={{
+                display: "flex",
+                gap: "10px",
+                flexWrap: "wrap",
+              }}
+            >
+              <input
+                type="text"
+                placeholder="Enter home or current address"
+                value={manualAddress}
+                onChange={(e) => setManualAddress(e.target.value)}
+                style={{
+                  padding: "12px",
+                  fontSize: "16px",
+                  minWidth: "280px",
+                  border: "1px solid #cccccc",
+                  borderRadius: "8px",
+                  flex: "1 1 320px",
+                }}
+              />
+
+              <button
+                onClick={setManualLocation}
+                disabled={locationStatus === "manual-loading"}
+                style={{
+                  padding: "12px 16px",
+                  fontSize: "16px",
+                  border: "1px solid #111111",
+                  borderRadius: "8px",
+                  backgroundColor:
+                    locationStatus === "manual-loading" ? "#f3f3f3" : "#111111",
+                  color:
+                    locationStatus === "manual-loading" ? "#555555" : "#ffffff",
+                  cursor:
+                    locationStatus === "manual-loading" ? "default" : "pointer",
+                }}
+              >
+                {locationStatus === "manual-loading" ? "Finding Address..." : "Set Location"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {isLoadingLocation ? (
