@@ -451,7 +451,7 @@ export default function Home() {
   const [activeLocation, setActiveLocation] = useState<ActiveLocation | null>(null);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("idle");
   const [locationMessage, setLocationMessage] = useState(
-    "Tap Use My Location to sort churches nearest to you."
+    "Use your current location or enter an address to find the closest confession times."
   );
 
   const [manualAddress, setManualAddress] = useState("");
@@ -464,7 +464,7 @@ export default function Home() {
       setLocationStatus("unsupported");
       setShowManualAddressBox(true);
       setLocationMessage(
-        "Location is not supported on this device. Enter a home or current address below to sort churches closest to you."
+        "Location is not supported on this device. Enter a home or current address below."
       );
       return;
     }
@@ -482,9 +482,7 @@ export default function Home() {
         });
         setLocationStatus("granted");
         setShowManualAddressBox(false);
-        setLocationMessage(
-          "Sorted by closest churches first, then next upcoming confession."
-        );
+        setLocationMessage("Showing churches closest to your location.");
       },
       (error) => {
         console.error("Geolocation error:", error);
@@ -493,15 +491,15 @@ export default function Home() {
 
         if (error.code === error.PERMISSION_DENIED) {
           setLocationMessage(
-            "Location is turned off for Safari. Enable it in Safari site settings, or enter a home or current address below to sort churches closest to you."
+            "Location is turned off for Safari. Enable it in Safari site settings, or enter a home or current address below."
           );
         } else if (error.code === error.TIMEOUT) {
           setLocationMessage(
-            "Location request timed out. Enter a home or current address below to sort churches closest to you."
+            "Location request timed out. Enter a home or current address below."
           );
         } else {
           setLocationMessage(
-            "Could not get your location. Enter a home or current address below to sort churches closest to you."
+            "Could not get your location. Enter a home or current address below."
           );
         }
       },
@@ -571,7 +569,8 @@ export default function Home() {
         source: "manual",
       });
       setLocationStatus("manual-granted");
-      setLocationMessage(`Sorted by closest churches to: ${query}`);
+      setShowManualAddressBox(false);
+      setLocationMessage(`Showing churches closest to ${query}.`);
     } catch (error) {
       console.error(error);
       setLocationStatus("manual-error");
@@ -584,9 +583,18 @@ export default function Home() {
   const clearLocation = useCallback(() => {
     setActiveLocation(null);
     setLocationStatus("idle");
-    setLocationMessage("Tap Use My Location to sort churches nearest to you.");
+    setLocationMessage(
+      "Use your current location or enter an address to find the closest confession times."
+    );
     setManualAddress("");
     setShowManualAddressBox(false);
+  }, []);
+
+  const changeLocation = useCallback(() => {
+    setShowManualAddressBox(true);
+    setLocationMessage(
+      "Use your current location again, or enter a different home or current address below."
+    );
   }, []);
 
   useEffect(() => {
@@ -688,12 +696,193 @@ export default function Home() {
   const visibleChurches = filteredChurches.slice(0, visibleCount);
   const isLoadingLocation =
     locationStatus === "loading" || locationStatus === "manual-loading";
+  const hasResolvedLocation = !!activeLocation;
+
+  if (!hasResolvedLocation) {
+    return (
+      <main
+        style={{
+          fontFamily: "Arial, sans-serif",
+          padding: "40px 24px",
+          maxWidth: "760px",
+          margin: "0 auto",
+          backgroundColor: "#ffffff",
+          color: "#111111",
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+        }}
+      >
+        <div style={{ width: "100%" }}>
+          <h1 style={{ fontSize: "48px", lineHeight: 1.1, marginBottom: "14px" }}>
+            Find Confession Near You
+          </h1>
+
+          <p
+            style={{
+              fontSize: "20px",
+              color: "#555555",
+              marginBottom: "28px",
+              maxWidth: "620px",
+              lineHeight: 1.5,
+            }}
+          >
+            Use your current location or enter a home or current address to find
+            the nearest confession times.
+          </p>
+
+          <div
+            style={{
+              border: "1px solid #e8e8e8",
+              borderRadius: "18px",
+              padding: "22px",
+              backgroundColor: "#ffffff",
+              boxShadow: "0 8px 30px rgba(0,0,0,0.04)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                gap: "12px",
+                flexWrap: "wrap",
+                marginBottom: "14px",
+              }}
+            >
+              <select
+                value={filter}
+                onChange={(e) => setFilter(e.target.value as FilterOption)}
+                style={{
+                  padding: "14px 16px",
+                  fontSize: "16px",
+                  border: "1px solid #d6d6d6",
+                  borderRadius: "10px",
+                  backgroundColor: "#ffffff",
+                }}
+              >
+                <option value="next">Next Available</option>
+                <option value="today">Today</option>
+                <option value="tomorrow">Tomorrow</option>
+                <option value="thisWeek">This week</option>
+                <option value="saturday">Saturday</option>
+                <option value="sunday">Sunday</option>
+              </select>
+
+              <button
+                onClick={requestLocation}
+                disabled={isLoadingLocation}
+                style={{
+                  padding: "14px 18px",
+                  fontSize: "16px",
+                  border: "1px solid #111111",
+                  borderRadius: "10px",
+                  backgroundColor: isLoadingLocation ? "#f3f3f3" : "#111111",
+                  color: isLoadingLocation ? "#555555" : "#ffffff",
+                  cursor: isLoadingLocation ? "default" : "pointer",
+                  fontWeight: 600,
+                }}
+              >
+                {locationStatus === "loading" ? "Getting Location..." : "Use My Location"}
+              </button>
+            </div>
+
+            <div
+              style={{
+                color: "#666666",
+                fontSize: "14px",
+                lineHeight: 1.5,
+                marginBottom: showManualAddressBox ? "14px" : 0,
+              }}
+            >
+              {locationMessage}
+            </div>
+
+            {showManualAddressBox && (
+              <div
+                style={{
+                  marginTop: "14px",
+                  padding: "18px",
+                  border: "1px solid #ecd7ae",
+                  borderRadius: "14px",
+                  backgroundColor: "#fffaf2",
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 700,
+                    marginBottom: "8px",
+                    fontSize: "18px",
+                  }}
+                >
+                  Location is turned off for Safari
+                </div>
+
+                <p
+                  style={{
+                    margin: "0 0 12px 0",
+                    color: "#555555",
+                    fontSize: "15px",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Enable it in Safari site settings, or enter a home or current
+                  address below to sort churches closest to you.
+                </p>
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "10px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <input
+                    type="text"
+                    placeholder="Enter home or current address"
+                    value={manualAddress}
+                    onChange={(e) => setManualAddress(e.target.value)}
+                    style={{
+                      padding: "14px 16px",
+                      fontSize: "16px",
+                      minWidth: "280px",
+                      border: "1px solid #d6d6d6",
+                      borderRadius: "10px",
+                      flex: "1 1 320px",
+                    }}
+                  />
+
+                  <button
+                    onClick={setManualLocation}
+                    disabled={locationStatus === "manual-loading"}
+                    style={{
+                      padding: "14px 18px",
+                      fontSize: "16px",
+                      border: "1px solid #111111",
+                      borderRadius: "10px",
+                      backgroundColor:
+                        locationStatus === "manual-loading" ? "#f3f3f3" : "#111111",
+                      color:
+                        locationStatus === "manual-loading" ? "#555555" : "#ffffff",
+                      cursor:
+                        locationStatus === "manual-loading" ? "default" : "pointer",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {locationStatus === "manual-loading" ? "Finding Address..." : "Set Location"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main
       style={{
         fontFamily: "Arial, sans-serif",
-        padding: "40px",
+        padding: "32px 24px 40px",
         maxWidth: "950px",
         margin: "0 auto",
         backgroundColor: "#ffffff",
@@ -701,14 +890,6 @@ export default function Home() {
         minHeight: "100vh",
       }}
     >
-      <h1 style={{ fontSize: "40px", marginBottom: "10px" }}>
-        Find Confession Near You
-      </h1>
-
-      <p style={{ fontSize: "18px", color: "#555555", marginBottom: "20px" }}>
-        Use your location or enter an address to find the nearest confession times.
-      </p>
-
       <div
         style={{
           position: "sticky",
@@ -720,23 +901,32 @@ export default function Home() {
           borderBottom: "1px solid #eeeeee",
         }}
       >
+        <h1 style={{ fontSize: "34px", marginBottom: "10px" }}>
+          Confession Near {activeLocation.label}
+        </h1>
+
+        <p style={{ fontSize: "16px", color: "#666666", marginBottom: "14px" }}>
+          Showing churches closest to your selected location.
+        </p>
+
         <div
           style={{
             display: "flex",
-            gap: "12px",
+            gap: "10px",
             flexWrap: "wrap",
-            marginBottom: "12px",
-            paddingTop: "8px",
+            alignItems: "center",
+            marginBottom: showManualAddressBox ? "12px" : 0,
           }}
         >
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value as FilterOption)}
             style={{
-              padding: "12px",
+              padding: "12px 14px",
               fontSize: "16px",
               border: "1px solid #cccccc",
-              borderRadius: "8px",
+              borderRadius: "10px",
+              backgroundColor: "#ffffff",
             }}
           >
             <option value="next">Next Available</option>
@@ -748,108 +938,82 @@ export default function Home() {
           </select>
 
           <button
-            onClick={requestLocation}
-            disabled={isLoadingLocation}
+            onClick={changeLocation}
             style={{
-              padding: "12px 16px",
+              padding: "12px 14px",
               fontSize: "16px",
               border: "1px solid #111111",
-              borderRadius: "8px",
-              backgroundColor: isLoadingLocation ? "#f3f3f3" : "#ffffff",
+              borderRadius: "10px",
+              backgroundColor: "#ffffff",
               color: "#111111",
-              cursor: isLoadingLocation ? "default" : "pointer",
+              cursor: "pointer",
             }}
           >
-            {locationStatus === "loading" ? "Getting Location..." : "Use My Location"}
+            Change Location
           </button>
 
-          {activeLocation && (
-            <button
-              onClick={clearLocation}
-              style={{
-                padding: "12px 16px",
-                fontSize: "16px",
-                border: "1px solid #cccccc",
-                borderRadius: "8px",
-                backgroundColor: "#ffffff",
-                color: "#111111",
-                cursor: "pointer",
-              }}
-            >
-              Clear Location
-            </button>
-          )}
-        </div>
-
-        <div style={{ color: "#555555", fontSize: "14px", marginBottom: showManualAddressBox ? "12px" : 0 }}>
-          {locationMessage}
-        </div>
-
-        {activeLocation && (
-          <div
+          <button
+            onClick={clearLocation}
             style={{
-              marginBottom: "12px",
               padding: "12px 14px",
-              border: "1px solid #d9e7ff",
+              fontSize: "16px",
+              border: "1px solid #cccccc",
               borderRadius: "10px",
-              backgroundColor: "#f7fbff",
-              color: "#1a1a1a",
-              fontSize: "14px",
+              backgroundColor: "#ffffff",
+              color: "#111111",
+              cursor: "pointer",
             }}
           >
-            Using location: <strong>{activeLocation.label}</strong>
-          </div>
-        )}
+            Clear Location
+          </button>
+        </div>
 
         {showManualAddressBox && (
           <div
             style={{
+              marginTop: "12px",
               padding: "16px",
-              border: "1px solid #f0d9b5",
+              border: "1px solid #e7e7e7",
               borderRadius: "12px",
-              backgroundColor: "#fffaf2",
+              backgroundColor: "#fafafa",
             }}
           >
-            <div
-              style={{
-                fontWeight: 600,
-                marginBottom: "8px",
-                fontSize: "16px",
-              }}
-            >
-              Location is turned off for Safari
-            </div>
-
-            <p
-              style={{
-                margin: "0 0 12px 0",
-                color: "#555555",
-                fontSize: "14px",
-                lineHeight: 1.5,
-              }}
-            >
-              Enable it in Safari site settings, or enter a home or current address
-              below to sort churches closest to you.
-            </p>
-
             <div
               style={{
                 display: "flex",
                 gap: "10px",
                 flexWrap: "wrap",
+                marginBottom: "10px",
               }}
             >
+              <button
+                onClick={requestLocation}
+                disabled={isLoadingLocation}
+                style={{
+                  padding: "12px 16px",
+                  fontSize: "16px",
+                  border: "1px solid #111111",
+                  borderRadius: "10px",
+                  backgroundColor: "#111111",
+                  color: "#ffffff",
+                  cursor: isLoadingLocation ? "default" : "pointer",
+                  fontWeight: 600,
+                }}
+              >
+                {locationStatus === "loading" ? "Getting Location..." : "Use My Location"}
+              </button>
+
               <input
                 type="text"
                 placeholder="Enter home or current address"
                 value={manualAddress}
                 onChange={(e) => setManualAddress(e.target.value)}
                 style={{
-                  padding: "12px",
+                  padding: "12px 14px",
                   fontSize: "16px",
                   minWidth: "280px",
                   border: "1px solid #cccccc",
-                  borderRadius: "8px",
+                  borderRadius: "10px",
                   flex: "1 1 320px",
                 }}
               />
@@ -861,17 +1025,22 @@ export default function Home() {
                   padding: "12px 16px",
                   fontSize: "16px",
                   border: "1px solid #111111",
-                  borderRadius: "8px",
+                  borderRadius: "10px",
                   backgroundColor:
                     locationStatus === "manual-loading" ? "#f3f3f3" : "#111111",
                   color:
                     locationStatus === "manual-loading" ? "#555555" : "#ffffff",
                   cursor:
                     locationStatus === "manual-loading" ? "default" : "pointer",
+                  fontWeight: 600,
                 }}
               >
                 {locationStatus === "manual-loading" ? "Finding Address..." : "Set Location"}
               </button>
+            </div>
+
+            <div style={{ color: "#666666", fontSize: "14px" }}>
+              {locationMessage}
             </div>
           </div>
         )}
