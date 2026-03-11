@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getAllCityPages, getChurchesByCity } from "@/lib/churches";
+import { getChurchesByCity } from "@/lib/churches";
+
+export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{
@@ -8,13 +10,6 @@ type PageProps = {
     city: string;
   }>;
 };
-
-export async function generateStaticParams() {
-  return getAllCityPages().map((city) => ({
-    state: city.stateSlug,
-    city: city.citySlug,
-  }));
-}
 
 export async function generateMetadata({ params }: PageProps) {
   const resolvedParams = await params;

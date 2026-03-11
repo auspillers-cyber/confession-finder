@@ -2,21 +2,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   getAllCitiesByState,
-  getAllStatePages,
   getChurchesByState,
 } from "@/lib/churches";
+
+export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{
     state: string;
   }>;
 };
-
-export async function generateStaticParams() {
-  return getAllStatePages().map((state) => ({
-    state: state.stateSlug,
-  }));
-}
 
 export async function generateMetadata({ params }: PageProps) {
   const resolvedParams = await params;

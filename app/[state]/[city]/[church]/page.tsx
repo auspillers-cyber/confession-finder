@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getAllChurchPageParams, getChurchBySlugs } from "@/lib/churches";
+import { getChurchBySlugs } from "@/lib/churches";
+
+export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{
@@ -9,10 +11,6 @@ type PageProps = {
     church: string;
   }>;
 };
-
-export async function generateStaticParams() {
-  return getAllChurchPageParams();
-}
 
 export async function generateMetadata({ params }: PageProps) {
   const resolvedParams = await params;
