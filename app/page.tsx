@@ -445,7 +445,6 @@ function sortSlotsForDisplay(slots: ConfessionTime[]): ConfessionTime[] {
 }
 
 export default function Home() {
-  const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterOption>("next");
   const [visibleCount, setVisibleCount] = useState(30);
 
@@ -545,7 +544,6 @@ export default function Home() {
       const data: Array<{
         lat: string;
         lon: string;
-        display_name: string;
       }> = await res.json();
 
       if (!data.length) {
@@ -593,24 +591,11 @@ export default function Home() {
 
   useEffect(() => {
     setVisibleCount(30);
-  }, [search, filter]);
+  }, [filter]);
 
   const filteredChurches = useMemo(() => {
-    const searchValue = clean(search).toLowerCase();
-
     const baseResults: ChurchResult[] = churches
-      .filter((church) => {
-        const matchesSearch =
-          searchValue === "" ||
-          church.name.toLowerCase().includes(searchValue) ||
-          church.city.toLowerCase().includes(searchValue) ||
-          church.state.toLowerCase().includes(searchValue) ||
-          church.address.toLowerCase().includes(searchValue);
-
-        if (!matchesSearch) return false;
-
-        return getBestSlotForFilter(church, filter) !== null;
-      })
+      .filter((church) => getBestSlotForFilter(church, filter) !== null)
       .map((church) => {
         const distanceMiles = getDistanceMiles(church, activeLocation);
         const bestSlot = getBestSlotForFilter(church, filter);
@@ -698,7 +683,7 @@ export default function Home() {
       });
 
     return [...withDistance, ...withoutDistance];
-  }, [search, filter, activeLocation]);
+  }, [filter, activeLocation]);
 
   const visibleChurches = filteredChurches.slice(0, visibleCount);
   const isLoadingLocation =
@@ -721,7 +706,7 @@ export default function Home() {
       </h1>
 
       <p style={{ fontSize: "18px", color: "#555555", marginBottom: "20px" }}>
-        Search Catholic churches and see upcoming confession times.
+        Use your location or enter an address to find the nearest confession times.
       </p>
 
       <div
@@ -744,21 +729,6 @@ export default function Home() {
             paddingTop: "8px",
           }}
         >
-          <input
-            type="text"
-            placeholder="Search church, city, state, or address"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{
-              padding: "12px",
-              fontSize: "16px",
-              minWidth: "280px",
-              border: "1px solid #cccccc",
-              borderRadius: "8px",
-              flex: "1 1 320px",
-            }}
-          />
-
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value as FilterOption)}
