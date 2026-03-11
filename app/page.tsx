@@ -675,7 +675,7 @@ export default function Home() {
       >
         <div style={{ width: "100%" }}>
           <h1 style={{ fontSize: "46px", lineHeight: 1.1, marginBottom: "14px" }}>
-            
+            Find Confession Near You
           </h1>
 
           <p
@@ -687,9 +687,7 @@ export default function Home() {
               lineHeight: 1.5,
             }}
           >
-            “Confession is the soul&apos;s bath. Even a room where no one lives
-            gathers dust; return after a week and you will see that it needs
-            dusting again.”
+            ““The priest is not there to judge you, but to forgive and absolve you.”
           </p>
 
           <p
@@ -700,7 +698,7 @@ export default function Home() {
               fontStyle: "italic",
             }}
           >
-            — Padre Pio
+            — St. John Vianney
           </p>
 
           <div
@@ -719,7 +717,7 @@ export default function Home() {
                 marginBottom: "12px",
               }}
             >
-              Find Confession Near You
+              
             </div>
 
             <div style={{ position: "relative" }}>
