@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import churchesData from "../data/churches_with_confessions_only.json";
 
 type ConfessionSlot = {
@@ -59,6 +59,13 @@ type ChurchResult = Church & {
   bestSlot: ConfessionTime | null;
   bestScore: number;
 };
+
+type LocationStatus =
+  | "idle"
+  | "loading"
+  | "granted"
+  | "denied"
+  | "unsupported";
 
 const rawChurches = churchesData as RawChurch[];
 
@@ -270,17 +277,6 @@ function getTomorrowName(): string {
   return dayOrder[(getTodayIndex() + 1) % 7];
 }
 
-function getNextWeekdayOffset(): number | null {
-  const todayIndex = getTodayIndex();
-
-  for (let offset = 0; offset < 7; offset++) {
-    const dayIndex = (todayIndex + offset) % 7;
-    if (dayIndex >= 1 && dayIndex <= 5) return offset;
-  }
-
-  return null;
-}
-
 function getTomorrowWeekday(): boolean {
   const tomorrowIndex = (getTodayIndex() + 1) % 7;
   return tomorrowIndex >= 1 && tomorrowIndex <= 5;
@@ -295,9 +291,7 @@ function getSlotScore(slot: ConfessionTime): number {
   if (slotMinutes === null) return Number.POSITIVE_INFINITY;
 
   if (slot.day === "Daily") {
-    return slotMinutes >= currentMinutes
-      ? slotMinutes
-      : 7 * 1440 + slotMinutes;
+    return slotMinutes >= currentMinutes ? slotMinutes : 7 * 1440 + slotMinutes;
   }
 
   if (slot.day === "Weekdays") {
@@ -368,10 +362,7 @@ function getSlotsForFilter(church: Church, filter: FilterOption): ConfessionTime
   });
 }
 
-function getBestSlotForFilter(
-  church: Church,
-  filter: FilterOption
-): ConfessionTime | null {
+function getBestSlotForFilter(church: Church, filter: FilterOption): ConfessionTime | null {
   const slots = getSlotsForFilter(church, filter);
   if (!slots.length) return null;
 
@@ -416,10 +407,7 @@ function haversineMiles(
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-function getDistanceMiles(
-  church: Church,
-  userLocation: UserLocation | null
-): number | null {
+function getDistanceMiles(church: Church, userLocation: UserLocation | null): number | null {
   if (!userLocation) return null;
   if (church.latitude === null || church.longitude === null) return null;
 
@@ -437,22 +425,6 @@ function formatDistance(distance: number | null): string {
   return `${Math.round(distance)} miles away`;
 }
 
-function getDisplayLabel(bestSlot: ConfessionTime | null): string {
-  if (!bestSlot) return "No confession times available";
-
-  const score = getSlotScore(bestSlot);
-  const daysAway = Math.floor(score / 1440);
-
-  let prefix = bestSlot.day;
-  if (daysAway === 0) prefix = "Today";
-  if (daysAway === 1) prefix = "Tomorrow";
-
-  if (!bestSlot.end) {
-    return `${prefix} • ${formatTime(bestSlot.start)}`;
-  }
-
-  return `${prefix} • ${formatTime(bestSlot.start)} - ${formatTime(bestSlot.end)}`;
-}
 function sortSlotsForDisplay(slots: ConfessionTime[]): ConfessionTime[] {
   return [...slots].sort((a, b) => {
     const dayA = dayOrder.indexOf(a.day);
@@ -466,22 +438,26 @@ function sortSlotsForDisplay(slots: ConfessionTime[]): ConfessionTime[] {
     return aMinutes - bMinutes;
   });
 }
+
 export default function Home() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterOption>("next");
-  const [visibleCount, setVisibleCount] = useState(30); 
+  const [visibleCount, setVisibleCount] = useState(30);
   const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
-  const [locationStatus, setLocationStatus] = useState<
-    "idle" | "loading" | "granted" | "denied"
-  >("idle");
+  const [locationStatus, setLocationStatus] = useState<LocationStatus>("idle");
+  const [locationMessage, setLocationMessage] = useState("");
 
-  useEffect(() => {
+  const requestLocation = useCallback(() => {
+    if (typeof window === "undefined") return;
+
     if (!navigator.geolocation) {
-      setLocationStatus("denied");
+      setLocationStatus("unsupported");
+      setLocationMessage("This device does not support location services.");
       return;
     }
 
     setLocationStatus("loading");
+    setLocationMessage("Getting your location...");
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
@@ -490,22 +466,42 @@ export default function Home() {
           lng: position.coords.longitude,
         });
         setLocationStatus("granted");
+        setLocationMessage("Sorted by closest churches first, then next upcoming confession.");
       },
-      () => {
+      (error) => {
+        console.error("Geolocation error:", error);
+        setUserLocation(null);
         setLocationStatus("denied");
+
+        if (error.code === error.PERMISSION_DENIED) {
+          setLocationMessage("Location permission was denied. Allow location access to see churches nearest to you.");
+        } else if (error.code === error.TIMEOUT) {
+          setLocationMessage("Location request timed out. Try again.");
+        } else {
+          setLocationMessage("Could not get your location. Try again.");
+        }
       },
       {
         enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 300000,
+        timeout: 15000,
+        maximumAge: 0,
       }
     );
   }, []);
+
   useEffect(() => {
-  setVisibleCount(30);
-    }, [search, filter]);
+    requestLocation();
+  }, [requestLocation]);
+
+  useEffect(() => {
+    setVisibleCount(30);
+  }, [search, filter]);
 
   const filteredChurches = useMemo(() => {
+    if (locationStatus !== "granted" || !userLocation) {
+      return [] as ChurchResult[];
+    }
+
     const searchValue = clean(search).toLowerCase();
 
     const baseResults: ChurchResult[] = churches
@@ -515,7 +511,6 @@ export default function Home() {
           church.name.toLowerCase().includes(searchValue) ||
           church.city.toLowerCase().includes(searchValue) ||
           church.state.toLowerCase().includes(searchValue) ||
-          church.zip.toLowerCase().includes(searchValue) ||
           church.address.toLowerCase().includes(searchValue);
 
         if (!matchesSearch) return false;
@@ -526,7 +521,6 @@ export default function Home() {
         const distanceMiles = getDistanceMiles(church, userLocation);
         const bestSlot = getBestSlotForFilter(church, filter);
         const bestScore = getBestScoreForFilter(church, filter);
-        
 
         return {
           ...church,
@@ -610,9 +604,10 @@ export default function Home() {
       });
 
     return [...withDistance, ...withoutDistance];
-  }, [search, filter, userLocation]);
+  }, [search, filter, userLocation, locationStatus]);
 
   const visibleChurches = filteredChurches.slice(0, visibleCount);
+  const shouldBlockResults = locationStatus === "idle" || locationStatus === "loading";
 
   return (
     <main
@@ -656,7 +651,7 @@ export default function Home() {
         >
           <input
             type="text"
-            placeholder="Search church, city, ZIP, or address"
+            placeholder="Search church, city, state, or address"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             style={{
@@ -685,181 +680,240 @@ export default function Home() {
             <option value="saturday">Saturday</option>
             <option value="sunday">Sunday</option>
           </select>
-        </div>
 
-        <div style={{ color: "#555555", fontSize: "14px" }}>
-          {locationStatus === "loading" && "Getting your location..."}
-          {locationStatus === "granted" &&
-            "Sorted by closest churches first, then next upcoming confession."}
-          {locationStatus === "denied" &&
-            "Location unavailable. Sorted by next upcoming confession."}
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gap: "16px" }}>
-        {visibleChurches.map((church) => {
-          const renderKey = `${church.id}-${church.zip}-${church.bestScore}-${church.website || "nowebsite"}`;
-
-          return (
-            <div
-              key={renderKey}
-              style={{
-                border: "1px solid #dddddd",
-                borderRadius: "12px",
-                padding: "20px",
-                backgroundColor: "#ffffff",
-              }}
-            >
-              <h2 style={{ margin: "0 0 8px 0" }}>{church.name}</h2>
-
-              <p style={{ margin: "0 0 6px 0", color: "#555555" }}>
-                {church.address}, {church.city}, {church.state} {church.zip}
-              </p>
-
-              {church.distanceMiles !== null && (
-                <p
-                  style={{
-                    margin: "0 0 8px 0",
-                    color: "#0f5a2b",
-                    fontWeight: 600,
-                  }}
-                >
-                  {formatDistance(church.distanceMiles)}
-                </p>
-              )}
-
-              <div style={{ margin: "0 0 18px 0" }}>
-  <p
-    style={{
-      margin: "0 0 10px 0",
-      fontWeight: 600,
-      fontSize: "18px",
-    }}
-  >
-    Confession time:
-  </p>
-
-  <div style={{ display: "grid", gap: "10px" }}>
-    {sortSlotsForDisplay(getSlotsForFilter(church, filter)).map((slot, index) => (
-      <div
-        key={`${church.id}-${slot.day}-${slot.start}-${index}`}
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "8px",
-          alignItems: "center",
-          fontSize: "17px",
-          lineHeight: 1.4,
-        }}
-      >
-        <span>
-  <strong>
-    {slot.day === "Weekdays" ? "Weekdays (Mon–Fri)" : slot.day}
-  </strong>{" "}
-  • {formatTime(slot.start)}
-  {slot.end ? ` - ${formatTime(slot.end)}` : ""}
-</span>
-
-        <a
-  href={`/api/calendar?church=${encodeURIComponent(
-    church.name
-  )}&day=${encodeURIComponent(slot.day)}&start=${encodeURIComponent(
-    slot.start
-  )}&end=${encodeURIComponent(
-    slot.end || slot.start
-  )}&address=${encodeURIComponent(
-    church.address
-  )}&city=${encodeURIComponent(church.city)}&state=${encodeURIComponent(
-    church.state
-  )}&zip=${encodeURIComponent(church.zip)}`}
-  style={{
-    textDecoration: "none",
-    fontSize: "16px",
-    whiteSpace: "nowrap",
-  }}
->
-  <span
-    style={{
-      color: "#1a73e8",
-      fontWeight: 500,
-      display: "inline-flex",
-      alignItems: "center",
-      gap: "4px",
-    }}
-  >
-    Add to Calendar
-  </span>
-</a>
-      </div>
-    ))}
-  </div>
-</div>
-
-<div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-  <a
-    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-      `${church.address}, ${church.city}, ${church.state} ${church.zip}`
-    )}`}
-    target="_blank"
-    rel="noreferrer"
-    style={{
-      padding: "10px 14px",
-      border: "1px solid #111111",
-      borderRadius: "8px",
-      textDecoration: "none",
-      color: "#111111",
-    }}
-  >
-    Directions
-  </a>
-
-   {church.website && (
-    <a
-      href={church.website}
-      target="_blank"
-      rel="noreferrer"
-      style={{
-        padding: "10px 14px",
-        border: "1px solid #cccccc",
-        borderRadius: "8px",
-        textDecoration: "none",
-        color: "#111111",
-      }}
-    >
-      Website
-    </a>
-  )}
-</div>
-            </div>
-          );
-        })}
-      </div>
-
-      {visibleCount < filteredChurches.length && (
-        <div
-          style={{
-            marginTop: "20px",
-            display: "flex",
-            justifyContent: "center",
-          }}
-        >
           <button
-            onClick={() => setVisibleCount((prev) => prev + 30)}
+            onClick={requestLocation}
             style={{
-              padding: "12px 18px",
+              padding: "12px 16px",
+              fontSize: "16px",
               border: "1px solid #111111",
-              borderRadius: "10px",
+              borderRadius: "8px",
               backgroundColor: "#ffffff",
               color: "#111111",
-              fontSize: "16px",
               cursor: "pointer",
             }}
           >
-            Load More
+            Use My Location
           </button>
         </div>
-      )}
 
+        <div style={{ color: "#555555", fontSize: "14px" }}>
+          {locationMessage}
+        </div>
+      </div>
+
+      {shouldBlockResults ? (
+        <div
+          style={{
+            border: "1px solid #dddddd",
+            borderRadius: "12px",
+            padding: "24px",
+            backgroundColor: "#ffffff",
+          }}
+        >
+          <h2 style={{ marginTop: 0 }}>Getting your location…</h2>
+          <p style={{ color: "#555555", marginBottom: "16px" }}>
+            We’re finding the churches nearest to you before showing results.
+          </p>
+        </div>
+      ) : locationStatus !== "granted" ? (
+        <div
+          style={{
+            border: "1px solid #dddddd",
+            borderRadius: "12px",
+            padding: "24px",
+            backgroundColor: "#ffffff",
+          }}
+        >
+          <h2 style={{ marginTop: 0 }}>Location needed</h2>
+          <p style={{ color: "#555555", marginBottom: "16px" }}>
+            To show the churches nearest to you, please allow location access and tap
+            <strong> Use My Location</strong>.
+          </p>
+          <button
+            onClick={requestLocation}
+            style={{
+              padding: "12px 16px",
+              fontSize: "16px",
+              border: "1px solid #111111",
+              borderRadius: "8px",
+              backgroundColor: "#111111",
+              color: "#ffffff",
+              cursor: "pointer",
+            }}
+          >
+            Try Again
+          </button>
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "grid", gap: "16px" }}>
+            {visibleChurches.map((church) => {
+              const renderKey = `${church.id}-${church.zip}-${church.bestScore}-${church.website || "nowebsite"}`;
+
+              return (
+                <div
+                  key={renderKey}
+                  style={{
+                    border: "1px solid #dddddd",
+                    borderRadius: "12px",
+                    padding: "20px",
+                    backgroundColor: "#ffffff",
+                  }}
+                >
+                  <h2 style={{ margin: "0 0 8px 0" }}>{church.name}</h2>
+
+                  <p style={{ margin: "0 0 6px 0", color: "#555555" }}>
+                    {church.address}, {church.city}, {church.state} {church.zip}
+                  </p>
+
+                  {church.distanceMiles !== null && (
+                    <p
+                      style={{
+                        margin: "0 0 8px 0",
+                        color: "#0f5a2b",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {formatDistance(church.distanceMiles)}
+                    </p>
+                  )}
+
+                  <div style={{ margin: "0 0 18px 0" }}>
+                    <p
+                      style={{
+                        margin: "0 0 10px 0",
+                        fontWeight: 600,
+                        fontSize: "18px",
+                      }}
+                    >
+                      Confession time:
+                    </p>
+
+                    <div style={{ display: "grid", gap: "10px" }}>
+                      {sortSlotsForDisplay(getSlotsForFilter(church, filter)).map((slot, index) => (
+                        <div
+                          key={`${church.id}-${slot.day}-${slot.start}-${index}`}
+                          style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: "8px",
+                            alignItems: "center",
+                            fontSize: "17px",
+                            lineHeight: 1.4,
+                          }}
+                        >
+                          <span>
+                            <strong>
+                              {slot.day === "Weekdays" ? "Weekdays (Mon–Fri)" : slot.day}
+                            </strong>{" "}
+                            • {formatTime(slot.start)}
+                            {slot.end ? ` - ${formatTime(slot.end)}` : ""}
+                          </span>
+
+                          <a
+                            href={`/api/calendar?church=${encodeURIComponent(
+                              church.name
+                            )}&day=${encodeURIComponent(slot.day)}&start=${encodeURIComponent(
+                              slot.start
+                            )}&end=${encodeURIComponent(
+                              slot.end || slot.start
+                            )}&address=${encodeURIComponent(
+                              church.address
+                            )}&city=${encodeURIComponent(
+                              church.city
+                            )}&state=${encodeURIComponent(
+                              church.state
+                            )}&zip=${encodeURIComponent(church.zip)}`}
+                            style={{
+                              textDecoration: "none",
+                              fontSize: "16px",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            <span
+                              style={{
+                                color: "#1a73e8",
+                                fontWeight: 500,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                            >
+                              Add to Calendar
+                            </span>
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                    <a
+                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                        `${church.address}, ${church.city}, ${church.state} ${church.zip}`
+                      )}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        padding: "10px 14px",
+                        border: "1px solid #111111",
+                        borderRadius: "8px",
+                        textDecoration: "none",
+                        color: "#111111",
+                      }}
+                    >
+                      Directions
+                    </a>
+
+                    {church.website && (
+                      <a
+                        href={church.website}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          padding: "10px 14px",
+                          border: "1px solid #cccccc",
+                          borderRadius: "8px",
+                          textDecoration: "none",
+                          color: "#111111",
+                        }}
+                      >
+                        Website
+                      </a>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {visibleCount < filteredChurches.length && (
+            <div
+              style={{
+                marginTop: "20px",
+                display: "flex",
+                justifyContent: "center",
+              }}
+            >
+              <button
+                onClick={() => setVisibleCount((prev) => prev + 30)}
+                style={{
+                  padding: "12px 18px",
+                  border: "1px solid #111111",
+                  borderRadius: "10px",
+                  backgroundColor: "#ffffff",
+                  color: "#111111",
+                  fontSize: "16px",
+                  cursor: "pointer",
+                }}
+              >
+                Load More
+              </button>
+            </div>
+          )}
+        </>
+      )}
     </main>
   );
 }
