@@ -1,0 +1,10 @@
+[
+  { "type": "city", "value": "Miami, Florida" },
+  { "type": "city", "value": "Fort Lauderdale, Florida" },
+  { "type": "city", "value": "West Palm Beach, Florida" },
+  { "type": "city", "value": "Orlando, Florida" },
+  { "type": "city", "value": "Tampa, Florida" },
+  { "type": "city", "value": "Jacksonville, Florida" },
+  { "type": "city", "value": "Naples, Florida" },
+  { "type": "city", "value": "Pensacola, Florida" }
+]
