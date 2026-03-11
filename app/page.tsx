@@ -882,7 +882,7 @@ export default function Home() {
     <main
       style={{
         fontFamily: "Arial, sans-serif",
-        padding: "32px 24px 40px",
+        padding: "0 16px 28px",
         maxWidth: "950px",
         margin: "0 auto",
         backgroundColor: "#ffffff",
@@ -896,34 +896,42 @@ export default function Home() {
           top: 0,
           zIndex: 20,
           backgroundColor: "#ffffff",
-          paddingBottom: "16px",
-          marginBottom: "24px",
           borderBottom: "1px solid #eeeeee",
+          padding: "8px 0 10px",
+          marginBottom: "16px",
         }}
       >
-        <h1 style={{ fontSize: "34px", marginBottom: "10px" }}>
-          Confession Near {activeLocation.label}
-        </h1>
-
-        <p style={{ fontSize: "16px", color: "#666666", marginBottom: "14px" }}>
-          Showing churches closest to your selected location.
-        </p>
-
         <div
           style={{
             display: "flex",
+            alignItems: "center",
             gap: "10px",
             flexWrap: "wrap",
-            alignItems: "center",
-            marginBottom: showManualAddressBox ? "12px" : 0,
           }}
         >
+          <button
+            onClick={clearLocation}
+            aria-label="Back"
+            style={{
+              border: "none",
+              background: "none",
+              padding: "4px 2px",
+              margin: 0,
+              fontSize: "28px",
+              lineHeight: 1,
+              cursor: "pointer",
+              color: "#111111",
+            }}
+          >
+            ←
+          </button>
+
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value as FilterOption)}
             style={{
-              padding: "12px 14px",
-              fontSize: "16px",
+              padding: "10px 12px",
+              fontSize: "15px",
               border: "1px solid #cccccc",
               borderRadius: "10px",
               backgroundColor: "#ffffff",
@@ -940,23 +948,8 @@ export default function Home() {
           <button
             onClick={changeLocation}
             style={{
-              padding: "12px 14px",
-              fontSize: "16px",
-              border: "1px solid #111111",
-              borderRadius: "10px",
-              backgroundColor: "#ffffff",
-              color: "#111111",
-              cursor: "pointer",
-            }}
-          >
-            Change Location
-          </button>
-
-          <button
-            onClick={clearLocation}
-            style={{
-              padding: "12px 14px",
-              fontSize: "16px",
+              padding: "10px 12px",
+              fontSize: "15px",
               border: "1px solid #cccccc",
               borderRadius: "10px",
               backgroundColor: "#ffffff",
@@ -964,15 +957,15 @@ export default function Home() {
               cursor: "pointer",
             }}
           >
-            Clear Location
+            Edit Location
           </button>
         </div>
 
         {showManualAddressBox && (
           <div
             style={{
-              marginTop: "12px",
-              padding: "16px",
+              marginTop: "10px",
+              padding: "12px",
               border: "1px solid #e7e7e7",
               borderRadius: "12px",
               backgroundColor: "#fafafa",
@@ -981,17 +974,17 @@ export default function Home() {
             <div
               style={{
                 display: "flex",
-                gap: "10px",
+                gap: "8px",
                 flexWrap: "wrap",
-                marginBottom: "10px",
+                marginBottom: "8px",
               }}
             >
               <button
                 onClick={requestLocation}
                 disabled={isLoadingLocation}
                 style={{
-                  padding: "12px 16px",
-                  fontSize: "16px",
+                  padding: "10px 12px",
+                  fontSize: "15px",
                   border: "1px solid #111111",
                   borderRadius: "10px",
                   backgroundColor: "#111111",
@@ -1009,12 +1002,12 @@ export default function Home() {
                 value={manualAddress}
                 onChange={(e) => setManualAddress(e.target.value)}
                 style={{
-                  padding: "12px 14px",
-                  fontSize: "16px",
-                  minWidth: "280px",
+                  padding: "10px 12px",
+                  fontSize: "15px",
+                  minWidth: "240px",
                   border: "1px solid #cccccc",
                   borderRadius: "10px",
-                  flex: "1 1 320px",
+                  flex: "1 1 280px",
                 }}
               />
 
@@ -1022,8 +1015,8 @@ export default function Home() {
                 onClick={setManualLocation}
                 disabled={locationStatus === "manual-loading"}
                 style={{
-                  padding: "12px 16px",
-                  fontSize: "16px",
+                  padding: "10px 12px",
+                  fontSize: "15px",
                   border: "1px solid #111111",
                   borderRadius: "10px",
                   backgroundColor:
@@ -1039,7 +1032,7 @@ export default function Home() {
               </button>
             </div>
 
-            <div style={{ color: "#666666", fontSize: "14px" }}>
+            <div style={{ color: "#666666", fontSize: "13px", lineHeight: 1.4 }}>
               {locationMessage}
             </div>
           </div>
@@ -1051,14 +1044,13 @@ export default function Home() {
           style={{
             border: "1px solid #dddddd",
             borderRadius: "12px",
-            padding: "24px",
+            padding: "18px",
             backgroundColor: "#ffffff",
             marginBottom: "16px",
           }}
         >
-          <h2 style={{ marginTop: 0 }}>Getting your location…</h2>
-          <p style={{ color: "#555555", marginBottom: 0 }}>
-            We’re finding the churches nearest to you.
+          <p style={{ color: "#555555", margin: 0 }}>
+            Getting churches nearest to you...
           </p>
         </div>
       ) : null}
