@@ -761,24 +761,35 @@ export default function Home() {
 </span>
 
         <a
-          href={`/api/calendar?church=${encodeURIComponent(
-            church.name
-          )}&day=${encodeURIComponent(slot.day)}&start=${encodeURIComponent(
-            slot.start
-          )}&end=${encodeURIComponent(slot.end || slot.start)}&address=${encodeURIComponent(
-            church.address
-          )}&city=${encodeURIComponent(church.city)}&state=${encodeURIComponent(
-            church.state
-          )}&zip=${encodeURIComponent(church.zip)}`}
-          style={{
-            textDecoration: "none",
-            color: "#111111",
-            fontSize: "16px",
-            whiteSpace: "nowrap",
-          }}
-        >
-          (Add to Calendar)
-        </a>
+  href={`/api/calendar?church=${encodeURIComponent(
+    church.name
+  )}&day=${encodeURIComponent(slot.day)}&start=${encodeURIComponent(
+    slot.start
+  )}&end=${encodeURIComponent(
+    slot.end || slot.start
+  )}&address=${encodeURIComponent(
+    church.address
+  )}&city=${encodeURIComponent(church.city)}&state=${encodeURIComponent(
+    church.state
+  )}&zip=${encodeURIComponent(church.zip)}`}
+  style={{
+    textDecoration: "none",
+    fontSize: "16px",
+    whiteSpace: "nowrap",
+  }}
+>
+  <span
+    style={{
+      color: "#1a73e8",
+      fontWeight: 500,
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "4px",
+    }}
+  >
+    📅 Add to Calendar
+  </span>
+</a>
       </div>
     ))}
   </div>
