@@ -787,7 +787,7 @@ export default function Home() {
       gap: "4px",
     }}
   >
-    📅 Add to Calendar
+    Add to Calendar
   </span>
 </a>
       </div>
