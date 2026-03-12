@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import churchesData from "../data/churches_with_confessions_only.json";
+import zipData from "../data/us_zipcodes.json";
 
 type ConfessionSlot = {
   start_time?: string;
@@ -450,81 +451,28 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!clean(manualAddress) || activeLocation) {
-      setSuggestions([]);
-      setShowSuggestions(false);
-      return;
-    }
 
-    if (debounceRef.current) {
-      window.clearTimeout(debounceRef.current);
-    }
+  const zip = manualAddress.trim();
 
-    debounceRef.current = window.setTimeout(async () => {
-      const query = clean(manualAddress);
+  if (zip.length !== 5) return;
 
-      if (query.length < 4) {
-        setSuggestions([]);
-        setShowSuggestions(false);
-        return;
-      }
+  const data = (zipData as any)[zip];
 
-      if (query.toLowerCase() === lastSuggestionQuery.toLowerCase()) {
-        return;
-      }
+  if (!data) {
+    setLocationMessage("ZIP code not found.");
+    return;
+  }
 
-      try {
-        setLocationStatus("suggesting");
-        setLastSuggestionQuery(query);
+  setActiveLocation({
+    lat: data.lat,
+    lng: data.lng,
+    label: zip,
+    source: "manual",
+  });
 
-        const url = new URL("https://nominatim.openstreetmap.org/search");
-        url.searchParams.set("q", query);
-        url.searchParams.set("format", "jsonv2");
-        url.searchParams.set("addressdetails", "1");
-        url.searchParams.set("limit", "5");
-        url.searchParams.set("countrycodes", "us");
+  setLocationMessage(`Showing churches near ZIP ${zip}`);
 
-        const res = await fetch(url.toString(), {
-          headers: {
-            Accept: "application/json",
-          },
-        });
-
-        if (!res.ok) {
-          throw new Error("Suggestion request failed");
-        }
-
-        const data: Array<{
-          display_name: string;
-          lat: string;
-          lon: string;
-        }> = await res.json();
-
-        const mapped = data
-          .map((item) => ({
-            label: item.display_name,
-            lat: Number(item.lat),
-            lng: Number(item.lon),
-          }))
-          .filter((item) => Number.isFinite(item.lat) && Number.isFinite(item.lng));
-
-        setSuggestions(mapped);
-        setShowSuggestions(mapped.length > 0);
-        setLocationStatus("idle");
-      } catch (error) {
-        console.error(error);
-        setSuggestions([]);
-        setShowSuggestions(false);
-        setLocationStatus("idle");
-      }
-    }, 450);
-
-    return () => {
-      if (debounceRef.current) {
-        window.clearTimeout(debounceRef.current);
-      }
-    };
-  }, [manualAddress, activeLocation, lastSuggestionQuery]);
+}, [manualAddress]);
 
   const chooseSuggestion = useCallback((suggestion: Suggestion) => {
     setManualAddress(suggestion.label);
@@ -740,7 +688,7 @@ export default function Home() {
             <div style={{ position: "relative" }}>
               <input
                 type="text"
-                placeholder="City, state"
+                placeholder="ZIP code"
                 value={manualAddress}
                 onChange={(e) => {
                   setManualAddress(e.target.value);
