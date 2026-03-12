@@ -268,14 +268,6 @@ function transformChurches(raw: RawChurch[]): Church[] {
 
 const churches: Church[] = transformChurches(rawChurches);
 
-function getTodayIndex(): number {
-  return new Date().getDay();
-}
-
-function getTodayName(): string {
-  return dayOrder[getTodayIndex()];
-}
-
 function getSlotScore(slot: ConfessionTime): number {
   const now = new Date();
   const currentDayIndex = now.getDay();
@@ -395,13 +387,14 @@ export default function Home() {
   const [activeLocation, setActiveLocation] = useState<ActiveLocation | null>(null);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("idle");
   const [locationMessage, setLocationMessage] = useState(
-    "Use your current location or enter your home address."
+    ""
   );
 
   const [manualAddress, setManualAddress] = useState("");
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
+  const [lastSuggestionQuery, setLastSuggestionQuery] = useState("");
 
   const debounceRef = useRef<number | null>(null);
   const blurTimeoutRef = useRef<number | null>(null);
@@ -412,7 +405,7 @@ export default function Home() {
     if (!navigator.geolocation) {
       setLocationStatus("unsupported");
       setLocationMessage(
-        "Location is not supported on this device. Enter your home address below."
+        "Location is not supported on this device. Enter city, state below."
       );
       return;
     }
@@ -440,12 +433,12 @@ export default function Home() {
 
         if (error.code === error.PERMISSION_DENIED) {
           setLocationMessage(
-            "Location is turned off for Safari. Enable it in Safari site settings, or enter your home address below."
+            "Location is turned off for Safari. Enable it in Safari site settings, or enter city, state below."
           );
         } else if (error.code === error.TIMEOUT) {
-          setLocationMessage("Location request timed out. Enter your home address below.");
+          setLocationMessage("Location request timed out. Enter city, state below.");
         } else {
-          setLocationMessage("Could not get your location. Enter your home address below.");
+          setLocationMessage("Could not get your location. Enter city, state below.");
         }
       },
       {
@@ -469,14 +462,20 @@ export default function Home() {
 
     debounceRef.current = window.setTimeout(async () => {
       const query = clean(manualAddress);
-      if (query.length < 3) {
+
+      if (query.length < 4) {
         setSuggestions([]);
         setShowSuggestions(false);
         return;
       }
 
+      if (query.toLowerCase() === lastSuggestionQuery.toLowerCase()) {
+        return;
+      }
+
       try {
         setLocationStatus("suggesting");
+        setLastSuggestionQuery(query);
 
         const url = new URL("https://nominatim.openstreetmap.org/search");
         url.searchParams.set("q", query);
@@ -507,9 +506,7 @@ export default function Home() {
             lat: Number(item.lat),
             lng: Number(item.lon),
           }))
-          .filter(
-            (item) => Number.isFinite(item.lat) && Number.isFinite(item.lng)
-          );
+          .filter((item) => Number.isFinite(item.lat) && Number.isFinite(item.lng));
 
         setSuggestions(mapped);
         setShowSuggestions(mapped.length > 0);
@@ -520,17 +517,18 @@ export default function Home() {
         setShowSuggestions(false);
         setLocationStatus("idle");
       }
-    }, 300);
+    }, 450);
 
     return () => {
       if (debounceRef.current) {
         window.clearTimeout(debounceRef.current);
       }
     };
-  }, [manualAddress, activeLocation]);
+  }, [manualAddress, activeLocation, lastSuggestionQuery]);
 
   const chooseSuggestion = useCallback((suggestion: Suggestion) => {
     setManualAddress(suggestion.label);
+    setLastSuggestionQuery(suggestion.label);
     setActiveLocation({
       lat: suggestion.lat,
       lng: suggestion.lng,
@@ -547,16 +545,17 @@ export default function Home() {
   const clearLocation = useCallback(() => {
     setActiveLocation(null);
     setLocationStatus("idle");
-    setLocationMessage("Use your current location or enter your home address.");
+    setLocationMessage("Use your current location or enter city, state.");
     setManualAddress("");
     setSuggestions([]);
     setShowSuggestions(false);
     setShowEditor(false);
+    setLastSuggestionQuery("");
   }, []);
 
   const openEditor = useCallback(() => {
     setShowEditor(true);
-    setLocationMessage("Use your current location again, or enter a different address.");
+    setLocationMessage("Use your current location again, or enter a different city, state.");
   }, []);
 
   useEffect(() => {
@@ -623,10 +622,7 @@ export default function Home() {
     const dedupedResults = Array.from(deduped.values());
 
     const withDistance = dedupedResults
-      .filter(
-        (church) =>
-          church.distanceMiles !== null && Number.isFinite(church.distanceMiles)
-      )
+      .filter((church) => church.distanceMiles !== null && Number.isFinite(church.distanceMiles))
       .sort((a, b) => {
         if (a.distanceMiles! !== b.distanceMiles!) {
           return a.distanceMiles! - b.distanceMiles!;
@@ -640,10 +636,7 @@ export default function Home() {
       });
 
     const withoutDistance = dedupedResults
-      .filter(
-        (church) =>
-          church.distanceMiles === null || !Number.isFinite(church.distanceMiles)
-      )
+      .filter((church) => church.distanceMiles === null || !Number.isFinite(church.distanceMiles))
       .sort((a, b) => {
         if (a.bestScore !== b.bestScore) {
           return a.bestScore - b.bestScore;
@@ -663,8 +656,8 @@ export default function Home() {
       <main
         style={{
           fontFamily: "Arial, sans-serif",
-          padding: "40px 24px",
-          maxWidth: "760px",
+          padding: "36px 20px",
+          maxWidth: "860px",
           margin: "0 auto",
           backgroundColor: "#ffffff",
           color: "#111111",
@@ -673,120 +666,121 @@ export default function Home() {
           alignItems: "center",
         }}
       >
-        <div style={{ width: "100%" }}>
-          <h1 style={{ fontSize: "46px", lineHeight: 1.1, marginBottom: "14px" }}>
-            Find Confession Near You
-          </h1>
-
-          <p
+        <div
+          style={{
+            width: "100%",
+            border: "1px solid #ececec",
+            borderRadius: "28px",
+            padding: "30px 24px",
+            backgroundColor: "#ffffff",
+            boxShadow: "0 14px 48px rgba(0,0,0,0.06)",
+          }}
+        >
+          <h1
             style={{
-              fontSize: "20px",
-              color: "#555555",
+              fontSize: "44px",
+              lineHeight: 1.05,
               marginBottom: "14px",
-              maxWidth: "640px",
-              lineHeight: 1.5,
+              letterSpacing: "-0.03em",
+              fontWeight: 700,
+              textAlign: "center",
             }}
           >
-            ““The priest is not there to judge you, but to forgive and absolve you.”
-          </p>
-
-          <p
-            style={{
-              fontSize: "18px",
-              color: "#555555",
-              marginBottom: "26px",
-              fontStyle: "italic",
-            }}
-          >
-            — St. John Vianney
-          </p>
+            Confession Near You
+          </h1>
 
           <div
             style={{
-              border: "1px solid #e8e8e8",
-              borderRadius: "18px",
-              padding: "20px",
-              backgroundColor: "#ffffff",
-              boxShadow: "0 8px 30px rgba(0,0,0,0.04)",
+              maxWidth: "660px",
+              margin: "0 auto 8px",
+              textAlign: "center",
+            }}
+          >
+            <p
+              style={{
+                fontSize: "18px",
+                color: "#555555",
+                lineHeight: 1.6,
+                margin: 0,
+              }}
+            >
+              “The priest is not there to judge you, but to forgive and absolve you.”
+            </p>
+            <p
+              style={{
+                fontSize: "16px",
+                color: "#666666",
+                marginTop: "8px",
+                marginBottom: 0,
+                fontStyle: "italic",
+              }}
+            >
+              — St. John Vianney
+            </p>
+          </div>
+
+          <div
+            style={{
+              maxWidth: "680px",
+              margin: "34px auto 0",
             }}
           >
             <div
               style={{
-                fontSize: "22px",
-                fontWeight: 700,
-                marginBottom: "12px",
+                fontSize: "20px",
+                fontWeight: 600,
+                letterSpacing: "-0.02em",
+                marginBottom: "14px",
+                textAlign: "center",
               }}
             >
-              
+              Find the closest church to confess
             </div>
 
             <div style={{ position: "relative" }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  border: "1px solid #cccccc",
-                  borderRadius: "14px",
-                  overflow: "hidden",
-                  backgroundColor: "#ffffff",
+              <input
+                type="text"
+                placeholder="City, state"
+                value={manualAddress}
+                onChange={(e) => {
+                  setManualAddress(e.target.value);
+                  setShowEditor(true);
                 }}
-              >
-                <input
-                  type="text"
-                  placeholder="Search home address"
-                  value={manualAddress}
-                  onChange={(e) => {
-                    setManualAddress(e.target.value);
-                    setShowEditor(true);
-                  }}
-                  onFocus={() => {
-                    if (suggestions.length) setShowSuggestions(true);
-                  }}
-                  onBlur={() => {
-                    if (blurTimeoutRef.current) {
-                      window.clearTimeout(blurTimeoutRef.current);
-                    }
-                    blurTimeoutRef.current = window.setTimeout(() => {
-                      setShowSuggestions(false);
-                    }, 150);
-                  }}
-                  style={{
-                    flex: 1,
-                    padding: "16px 18px",
-                    fontSize: "18px",
-                    border: "none",
-                    outline: "none",
-                  }}
-                />
-
-                <button
-                  onClick={requestLocation}
-                  aria-label="Use current location"
-                  style={{
-                    border: "none",
-                    borderLeft: "1px solid #e5e5e5",
-                    backgroundColor: "#ffffff",
-                    width: "58px",
-                    height: "58px",
-                    fontSize: "24px",
-                    cursor: "pointer",
-                  }}
-                >
-                  ⌖
-                </button>
-              </div>
+                onFocus={() => {
+                  if (suggestions.length) setShowSuggestions(true);
+                }}
+                onBlur={() => {
+                  if (blurTimeoutRef.current) {
+                    window.clearTimeout(blurTimeoutRef.current);
+                  }
+                  blurTimeoutRef.current = window.setTimeout(() => {
+                    setShowSuggestions(false);
+                  }, 150);
+                }}
+                style={{
+                  width: "100%",
+                  padding: "18px 22px",
+                  fontSize: "20px",
+                  border: "1px solid #dcdcdc",
+                  borderRadius: "999px",
+                  outline: "none",
+                  backgroundColor: "#ffffff",
+                  color: "#111111",
+                  boxSizing: "border-box",
+                }}
+              />
 
               {showSuggestions && suggestions.length > 0 && (
                 <div
                   style={{
                     position: "absolute",
-                    top: "calc(100% + 8px)",
+                    top: "calc(100% + 10px)",
                     left: 0,
                     right: 0,
                     backgroundColor: "#ffffff",
-                    border: "1px solid #dddddd",
-                    borderRadius: "14px",
-                    boxShadow: "0 10px 30px rgba(0,0,0,0.10)",
+                    border: "1px solid #ececec",
+                    borderRadius: "18px",
+                    boxShadow: "0 18px 40px rgba(0,0,0,0.12)",
                     overflow: "hidden",
                     zIndex: 50,
                   }}
@@ -800,16 +794,15 @@ export default function Home() {
                         display: "block",
                         width: "100%",
                         textAlign: "left",
-                        padding: "14px 16px",
+                        padding: "16px 18px",
                         backgroundColor: "#ffffff",
                         border: "none",
                         borderBottom:
-                          index === suggestions.length - 1
-                            ? "none"
-                            : "1px solid #f1f1f1",
+                          index === suggestions.length - 1 ? "none" : "1px solid #f3f3f3",
                         cursor: "pointer",
                         fontSize: "15px",
-                        lineHeight: 1.4,
+                        lineHeight: 1.45,
+                        color: "#222222",
                       }}
                     >
                       {suggestion.label}
@@ -817,6 +810,37 @@ export default function Home() {
                   ))}
                 </div>
               )}
+            </div>
+
+            <div
+              style={{
+                marginTop: "14px",
+                display: "flex",
+                justifyContent: "flex-start",
+              }}
+            >
+              <button
+                onClick={requestLocation}
+                aria-label="Use precise location"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "10px",
+                  padding: "14px 20px",
+                  border: "1px solid #d9d9d9",
+                  borderRadius: "999px",
+                  backgroundColor: "#ffffff",
+                  color: "#3b82f6",
+                  fontSize: "16px",
+                  fontWeight: 1000,
+                  cursor: "pointer",
+                  boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
+                }}
+              >
+                <span style={{ fontSize: "18px", lineHeight: 1 }}>⌖</span>
+                <span>{isLoadingLocation ? "Getting location..." : "Use precise location"}</span>
+              </button>
             </div>
 
             <div
@@ -836,28 +860,14 @@ export default function Home() {
                   marginTop: "14px",
                   padding: "16px",
                   border: "1px solid #ecd7ae",
-                  borderRadius: "14px",
+                  borderRadius: "16px",
                   backgroundColor: "#fffaf2",
                   fontSize: "14px",
                   color: "#555555",
                   lineHeight: 1.5,
                 }}
               >
-                Location is turned off for Safari. Enable it in Safari site
-                settings, or keep typing your home address above and choose one
-                of the suggestions.
-              </div>
-            )}
-
-            {isLoadingLocation && (
-              <div
-                style={{
-                  marginTop: "14px",
-                  fontSize: "14px",
-                  color: "#555555",
-                }}
-              >
-                Getting your location...
+                Location is turned off for Safari. Enable it in Safari site settings, or keep typing city, state above and choose one of the suggestions.
               </div>
             )}
           </div>
@@ -937,71 +947,48 @@ export default function Home() {
               position: "relative",
             }}
           >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                border: "1px solid #cccccc",
-                borderRadius: "14px",
-                overflow: "hidden",
-                backgroundColor: "#ffffff",
+            <input
+              type="text"
+              placeholder="City, state"
+              value={manualAddress}
+              onChange={(e) => {
+                setManualAddress(e.target.value);
               }}
-            >
-              <input
-                type="text"
-                placeholder="Search home address"
-                value={manualAddress}
-                onChange={(e) => {
-                  setManualAddress(e.target.value);
-                }}
-                onFocus={() => {
-                  if (suggestions.length) setShowSuggestions(true);
-                }}
-                onBlur={() => {
-                  if (blurTimeoutRef.current) {
-                    window.clearTimeout(blurTimeoutRef.current);
-                  }
-                  blurTimeoutRef.current = window.setTimeout(() => {
-                    setShowSuggestions(false);
-                  }, 150);
-                }}
-                style={{
-                  flex: 1,
-                  padding: "12px 14px",
-                  fontSize: "16px",
-                  border: "none",
-                  outline: "none",
-                }}
-              />
-
-              <button
-                onClick={requestLocation}
-                aria-label="Use current location"
-                style={{
-                  border: "none",
-                  borderLeft: "1px solid #e5e5e5",
-                  backgroundColor: "#ffffff",
-                  width: "52px",
-                  height: "52px",
-                  fontSize: "22px",
-                  cursor: "pointer",
-                }}
-              >
-                ⌖
-              </button>
-            </div>
+              onFocus={() => {
+                if (suggestions.length) setShowSuggestions(true);
+              }}
+              onBlur={() => {
+                if (blurTimeoutRef.current) {
+                  window.clearTimeout(blurTimeoutRef.current);
+                }
+                blurTimeoutRef.current = window.setTimeout(() => {
+                  setShowSuggestions(false);
+                }, 150);
+              }}
+              style={{
+                width: "100%",
+                padding: "16px 18px",
+                fontSize: "17px",
+                border: "1px solid #dddddd",
+                borderRadius: "18px",
+                outline: "none",
+                backgroundColor: "#fcfcfc",
+                color: "#111111",
+                boxSizing: "border-box",
+              }}
+            />
 
             {showSuggestions && suggestions.length > 0 && (
               <div
                 style={{
                   position: "absolute",
-                  top: "calc(100% + 8px)",
+                  top: "calc(100% + 10px)",
                   left: 0,
                   right: 0,
                   backgroundColor: "#ffffff",
-                  border: "1px solid #dddddd",
-                  borderRadius: "14px",
-                  boxShadow: "0 10px 30px rgba(0,0,0,0.10)",
+                  border: "1px solid #ececec",
+                  borderRadius: "18px",
+                  boxShadow: "0 18px 40px rgba(0,0,0,0.12)",
                   overflow: "hidden",
                   zIndex: 50,
                 }}
@@ -1015,16 +1002,15 @@ export default function Home() {
                       display: "block",
                       width: "100%",
                       textAlign: "left",
-                      padding: "14px 16px",
+                      padding: "16px 18px",
                       backgroundColor: "#ffffff",
                       border: "none",
                       borderBottom:
-                        index === suggestions.length - 1
-                          ? "none"
-                          : "1px solid #f1f1f1",
+                        index === suggestions.length - 1 ? "none" : "1px solid #f3f3f3",
                       cursor: "pointer",
                       fontSize: "15px",
-                      lineHeight: 1.4,
+                      lineHeight: 1.45,
+                      color: "#222222",
                     }}
                   >
                     {suggestion.label}
@@ -1032,6 +1018,39 @@ export default function Home() {
                 ))}
               </div>
             )}
+
+            <div
+              style={{
+                marginTop: "10px",
+                display: "flex",
+                gap: "10px",
+                flexWrap: "wrap",
+                alignItems: "center",
+              }}
+            >
+              <button
+                onClick={requestLocation}
+                aria-label="Use precise location"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "10px",
+                  padding: "12px 18px",
+                  border: "1px solid #d9d9d9",
+                  borderRadius: "999px",
+                  backgroundColor: "#ffffff",
+                  color: "#3b82f6",
+                  fontSize: "15px",
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
+                }}
+              >
+                <span style={{ fontSize: "18px", lineHeight: 1 }}>⌖</span>
+                <span>{isLoadingLocation ? "Getting location..." : "Use precise location"}</span>
+              </button>
+            </div>
 
             <div
               style={{
@@ -1055,36 +1074,55 @@ export default function Home() {
             <div
               key={renderKey}
               style={{
-                border: "1px solid #dddddd",
-                borderRadius: "12px",
-                padding: "20px",
+                border: "1px solid #ececec",
+                borderRadius: "20px",
+                padding: "22px",
                 backgroundColor: "#ffffff",
+                boxShadow: "0 6px 20px rgba(0,0,0,0.04)",
               }}
             >
-              <h2 style={{ margin: "0 0 8px 0" }}>{church.name}</h2>
+              <h2
+                style={{
+                  margin: "0 0 10px 0",
+                  fontSize: "30px",
+                  fontWeight: 700,
+                  letterSpacing: "-0.02em",
+                }}
+              >
+                {church.name}
+              </h2>
 
-              <p style={{ margin: "0 0 6px 0", color: "#555555" }}>
+              <p
+                style={{
+                  margin: "0 0 10px 0",
+                  color: "#666666",
+                  fontSize: "16px",
+                  lineHeight: 1.5,
+                }}
+              >
                 {church.address}, {church.city}, {church.state} {church.zip}
               </p>
 
-              {church.distanceMiles !== null && (
-                <p
-                  style={{
-                    margin: "0 0 8px 0",
-                    color: "#0f5a2b",
-                    fontWeight: 600,
-                  }}
-                >
-                  {formatDistance(church.distanceMiles)}
-                </p>
-              )}
+              {activeLocation?.source === "gps" && church.distanceMiles !== null && (
+  <p
+    style={{
+      margin: "0 0 12px 0",
+      color: "#0f5a2b",
+      fontWeight: 700,
+      fontSize: "16px",
+    }}
+  >
+    {formatDistance(church.distanceMiles)}
+  </p>
+)}
 
               <div style={{ margin: "0 0 18px 0" }}>
                 <p
                   style={{
-                    margin: "0 0 10px 0",
-                    fontWeight: 600,
+                    margin: "0 0 12px 0",
+                    fontWeight: 700,
                     fontSize: "18px",
+                    letterSpacing: "-0.01em",
                   }}
                 >
                   Confession time:
@@ -1156,11 +1194,12 @@ export default function Home() {
                   target="_blank"
                   rel="noreferrer"
                   style={{
-                    padding: "10px 14px",
+                    padding: "11px 16px",
                     border: "1px solid #111111",
-                    borderRadius: "8px",
+                    borderRadius: "10px",
                     textDecoration: "none",
                     color: "#111111",
+                    fontWeight: 600,
                   }}
                 >
                   Directions
@@ -1172,11 +1211,12 @@ export default function Home() {
                     target="_blank"
                     rel="noreferrer"
                     style={{
-                      padding: "10px 14px",
-                      border: "1px solid #cccccc",
-                      borderRadius: "8px",
+                      padding: "11px 16px",
+                      border: "1px solid #d8d8d8",
+                      borderRadius: "10px",
                       textDecoration: "none",
                       color: "#111111",
+                      fontWeight: 500,
                     }}
                   >
                     Website
@@ -1191,7 +1231,7 @@ export default function Home() {
       {visibleCount < filteredChurches.length && (
         <div
           style={{
-            marginTop: "20px",
+            marginTop: "22px",
             display: "flex",
             justifyContent: "center",
           }}
@@ -1201,11 +1241,12 @@ export default function Home() {
             style={{
               padding: "12px 18px",
               border: "1px solid #111111",
-              borderRadius: "10px",
+              borderRadius: "12px",
               backgroundColor: "#ffffff",
               color: "#111111",
               fontSize: "16px",
               cursor: "pointer",
+              fontWeight: 600,
             }}
           >
             Load More
