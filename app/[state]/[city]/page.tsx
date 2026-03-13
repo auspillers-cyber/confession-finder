@@ -29,7 +29,7 @@ export async function generateMetadata({ params }: PageProps) {
   const stateName = churches[0].state;
 
   return {
-    title: `Confession Times in ${cityName}, ${stateName} | Confession Finder`,
+    title: `Confession Times in ${cityName}, ${stateName} | Catholic Churches offering Confession`,
     description: `Find Catholic confession times in ${cityName}, ${stateName}. Browse local churches and view confession schedules.`,
   };
 }

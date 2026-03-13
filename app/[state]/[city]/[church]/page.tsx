@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getChurchBySlugs } from "@/lib/churches";
+import { text } from "stream/consumers";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,7 @@ export async function generateMetadata({ params }: PageProps) {
   }
 
   return {
-    title: `${church.churchName} Confession Times in ${church.city}, ${church.state} | Confession Finder`,
+    title: `${church.churchName} Confession Times in ${church.city}, ${church.state} | Catholic Churches offering Confession`,
     description: `View confession times for ${church.churchName} in ${church.city}, ${church.state}. See church address, website, and confession schedule.`,
   };
 }
