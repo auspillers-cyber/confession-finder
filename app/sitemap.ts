@@ -5,14 +5,14 @@ import {
   getAllChurchPageParams,
 } from "@/lib/churches";
 
-const BASE_URL = "http://localhost:3000";
+const baseUrl = "https://confessionnearyou.com";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const urls: MetadataRoute.Sitemap = [];
 
   // Homepage
   urls.push({
-    url: `${BASE_URL}`,
+    url: `${baseUrl}`,
     lastModified: new Date(),
   });
 
@@ -21,7 +21,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   states.forEach((state) => {
     urls.push({
-      url: `${BASE_URL}/${state.stateSlug}`,
+      url: `${baseUrl}/${state.stateSlug}`,
       lastModified: new Date(),
     });
   });
@@ -31,7 +31,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   cities.forEach((city) => {
     urls.push({
-      url: `${BASE_URL}/${city.stateSlug}/${city.citySlug}`,
+      url: `${baseUrl}/${city.stateSlug}/${city.citySlug}`,
       lastModified: new Date(),
     });
   });
@@ -41,7 +41,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   churches.forEach((church) => {
     urls.push({
-      url: `${BASE_URL}/${church.state}/${church.city}/${church.church}`,
+      url: `${baseUrl}/${church.state}/${church.city}/${church.church}`,
       lastModified: new Date(),
     });
   });
