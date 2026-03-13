@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import churchesData from "../data/churches_with_confessions_only.json";
-import zipData from "../data/us_zipcodes.json";
+import zipDataRaw from "../data/us_zipcodes.json";
 
 type ConfessionSlot = {
   start_time?: string;
@@ -53,13 +53,16 @@ type ChurchResult = Church & {
   distanceMiles: number | null;
   bestSlot: ConfessionTime | null;
   bestScore: number;
+  exactZipMatch: boolean;
 };
 
-type Suggestion = {
-  label: string;
-  lat: number;
-  lng: number;
-};
+type FilterOption =
+  | "next"
+  | "today"
+  | "tomorrow"
+  | "thisWeek"
+  | "saturday"
+  | "sunday";
 
 type LocationStatus =
   | "idle"
@@ -67,10 +70,12 @@ type LocationStatus =
   | "granted"
   | "denied"
   | "unsupported"
-  | "suggesting"
   | "manual-granted"
   | "manual-error";
 
+type ZipData = Record<string, { lat: number; lng: number }>;
+
+const zipData = zipDataRaw as ZipData;
 const rawChurches = churchesData as RawChurch[];
 
 const dayOrder = [
@@ -269,6 +274,23 @@ function transformChurches(raw: RawChurch[]): Church[] {
 
 const churches: Church[] = transformChurches(rawChurches);
 
+function getTodayIndex(): number {
+  return new Date().getDay();
+}
+
+function getTodayName(): string {
+  return dayOrder[getTodayIndex()];
+}
+
+function getTomorrowName(): string {
+  return dayOrder[(getTodayIndex() + 1) % 7];
+}
+
+function getTomorrowWeekday(): boolean {
+  const tomorrowIndex = (getTodayIndex() + 1) % 7;
+  return tomorrowIndex >= 1 && tomorrowIndex <= 5;
+}
+
 function getSlotScore(slot: ConfessionTime): number {
   const now = new Date();
   const currentDayIndex = now.getDay();
@@ -306,13 +328,57 @@ function getSlotScore(slot: ConfessionTime): number {
   return daysAway * 1440 + slotMinutes;
 }
 
-function getBestSlot(church: Church): ConfessionTime | null {
-  if (!church.confessionTimes.length) return null;
+function getSlotsForFilter(church: Church, filter: FilterOption): ConfessionTime[] {
+  const today = getTodayName();
+  const tomorrow = getTomorrowName();
+  const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+
+  return church.confessionTimes.filter((slot) => {
+    const slotMinutes = parseTimeToMinutes(slot.start);
+    if (slotMinutes === null) return false;
+
+    switch (filter) {
+      case "next":
+        return true;
+
+      case "today":
+        if (slot.day === today) return slotMinutes >= nowMinutes;
+        if (slot.day === "Daily") return slotMinutes >= nowMinutes;
+        if (slot.day === "Weekdays") {
+          const todayIndex = getTodayIndex();
+          return todayIndex >= 1 && todayIndex <= 5 && slotMinutes >= nowMinutes;
+        }
+        return false;
+
+      case "tomorrow":
+        if (slot.day === tomorrow) return true;
+        if (slot.day === "Daily") return true;
+        if (slot.day === "Weekdays") return getTomorrowWeekday();
+        return false;
+
+      case "thisWeek":
+        return getSlotScore(slot) < Number.POSITIVE_INFINITY;
+
+      case "saturday":
+        return slot.day === "Saturday";
+
+      case "sunday":
+        return slot.day === "Sunday";
+
+      default:
+        return false;
+    }
+  });
+}
+
+function getBestSlotForFilter(church: Church, filter: FilterOption): ConfessionTime | null {
+  const slots = getSlotsForFilter(church, filter);
+  if (!slots.length) return null;
 
   let bestSlot: ConfessionTime | null = null;
   let bestScore = Number.POSITIVE_INFINITY;
 
-  for (const slot of church.confessionTimes) {
+  for (const slot of slots) {
     const score = getSlotScore(slot);
     if (score < bestScore) {
       bestScore = score;
@@ -323,8 +389,8 @@ function getBestSlot(church: Church): ConfessionTime | null {
   return bestSlot;
 }
 
-function getBestScore(church: Church): number {
-  const bestSlot = getBestSlot(church);
+function getBestScoreForFilter(church: Church, filter: FilterOption): number {
+  const bestSlot = getBestSlotForFilter(church, filter);
   if (!bestSlot) return Number.POSITIVE_INFINITY;
   return getSlotScore(bestSlot);
 }
@@ -383,31 +449,21 @@ function sortSlotsForDisplay(slots: ConfessionTime[]): ConfessionTime[] {
 }
 
 export default function Home() {
+  const [zipInput, setZipInput] = useState("");
+  const [filter, setFilter] = useState<FilterOption>("next");
   const [visibleCount, setVisibleCount] = useState(30);
 
   const [activeLocation, setActiveLocation] = useState<ActiveLocation | null>(null);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("idle");
-  const [locationMessage, setLocationMessage] = useState(
-    ""
-  );
-
-  const [manualAddress, setManualAddress] = useState("");
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [locationMessage, setLocationMessage] = useState("");
   const [showEditor, setShowEditor] = useState(false);
-  const [lastSuggestionQuery, setLastSuggestionQuery] = useState("");
-
-  const debounceRef = useRef<number | null>(null);
-  const blurTimeoutRef = useRef<number | null>(null);
 
   const requestLocation = useCallback(() => {
     if (typeof window === "undefined") return;
 
     if (!navigator.geolocation) {
       setLocationStatus("unsupported");
-      setLocationMessage(
-        "Location is not supported on this device. Enter city, state below."
-      );
+      setLocationMessage("Location is not supported on this device.");
       return;
     }
 
@@ -424,22 +480,18 @@ export default function Home() {
         });
         setLocationStatus("granted");
         setShowEditor(false);
-        setShowSuggestions(false);
-        setLocationMessage("Showing churches closest to your location.");
+        setLocationMessage("Showing closest churches to your current location.");
       },
       (error) => {
         console.error("Geolocation error:", error);
         setLocationStatus("denied");
-        setShowEditor(true);
 
         if (error.code === error.PERMISSION_DENIED) {
-          setLocationMessage(
-            "Location is turned off for Safari. Enable it in Safari site settings, or enter city, state below."
-          );
+          setLocationMessage("Location is turned off for Safari. Enter a ZIP code instead.");
         } else if (error.code === error.TIMEOUT) {
-          setLocationMessage("Location request timed out. Enter city, state below.");
+          setLocationMessage("Location request timed out. Enter a ZIP code instead.");
         } else {
-          setLocationMessage("Could not get your location. Enter city, state below.");
+          setLocationMessage("Could not get your location. Enter a ZIP code instead.");
         }
       },
       {
@@ -451,79 +503,80 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const zip = zipInput.trim();
 
-  const zip = manualAddress.trim();
+    if (zip.length === 0) {
+      if (!activeLocation || activeLocation.source === "manual") {
+        setLocationStatus("idle");
+        setLocationMessage("");
+      }
+      return;
+    }
 
-  if (zip.length !== 5) return;
+    if (zip.length < 5) {
+      setLocationMessage("Enter a 5-digit ZIP code.");
+      return;
+    }
 
-  const data = (zipData as any)[zip];
+    if (zip.length > 5) {
+      setLocationMessage("ZIP code must be 5 digits.");
+      return;
+    }
 
-  if (!data) {
-    setLocationMessage("ZIP code not found.");
-    return;
-  }
+    const data = zipData[zip];
 
-  setActiveLocation({
-    lat: data.lat,
-    lng: data.lng,
-    label: zip,
-    source: "manual",
-  });
+    if (!data) {
+      setLocationStatus("manual-error");
+      setLocationMessage("ZIP code not found.");
+      return;
+    }
 
-  setLocationMessage(`Showing churches near ZIP ${zip}`);
-
-}, [manualAddress]);
-
-  const chooseSuggestion = useCallback((suggestion: Suggestion) => {
-    setManualAddress(suggestion.label);
-    setLastSuggestionQuery(suggestion.label);
     setActiveLocation({
-      lat: suggestion.lat,
-      lng: suggestion.lng,
-      label: suggestion.label,
+      lat: data.lat,
+      lng: data.lng,
+      label: zip,
       source: "manual",
     });
     setLocationStatus("manual-granted");
-    setLocationMessage(`Showing churches closest to ${suggestion.label}.`);
-    setSuggestions([]);
-    setShowSuggestions(false);
+    setLocationMessage(`Showing churches near ZIP ${zip}.`);
     setShowEditor(false);
-  }, []);
+  }, [zipInput, activeLocation]);
 
   const clearLocation = useCallback(() => {
     setActiveLocation(null);
     setLocationStatus("idle");
-    setLocationMessage("Use your current location or enter city, state.");
-    setManualAddress("");
-    setSuggestions([]);
-    setShowSuggestions(false);
+    setLocationMessage("");
+    setZipInput("");
     setShowEditor(false);
-    setLastSuggestionQuery("");
+    setFilter("next");
   }, []);
 
   const openEditor = useCallback(() => {
     setShowEditor(true);
-    setLocationMessage("Use your current location again, or enter a different city, state.");
   }, []);
 
   useEffect(() => {
     setVisibleCount(30);
-  }, [activeLocation]);
+  }, [activeLocation, filter]);
 
   const filteredChurches = useMemo(() => {
     const baseResults: ChurchResult[] = churches
-      .filter((church) => getBestSlot(church) !== null)
+      .filter((church) => getBestSlotForFilter(church, filter) !== null)
       .map((church) => {
         const distanceMiles = getDistanceMiles(church, activeLocation);
-        const bestSlot = getBestSlot(church);
-        const bestScore = getBestScore(church);
+        const bestSlot = getBestSlotForFilter(church, filter);
+        const bestScore = getBestScoreForFilter(church, filter);
 
-        return {
-          ...church,
-          distanceMiles,
-          bestSlot,
-          bestScore,
-        };
+      return {
+  ...church,
+  distanceMiles,
+  bestSlot,
+  bestScore,
+  exactZipMatch:
+    activeLocation?.source === "manual" &&
+    clean(church.zip) === clean(activeLocation.label),
+};
+
       });
 
     const deduped = new Map<string, ChurchResult>();
@@ -545,19 +598,10 @@ export default function Home() {
         continue;
       }
 
-      const existingHasDistance = existing.distanceMiles !== null;
-      const currentHasDistance = church.distanceMiles !== null;
+      const existingDistance = existing.distanceMiles ?? Number.POSITIVE_INFINITY;
+      const currentDistance = church.distanceMiles ?? Number.POSITIVE_INFINITY;
 
-      if (!existingHasDistance && currentHasDistance) {
-        deduped.set(key, church);
-        continue;
-      }
-
-      if (
-        existing.distanceMiles !== null &&
-        church.distanceMiles !== null &&
-        church.distanceMiles < existing.distanceMiles
-      ) {
+      if (currentDistance < existingDistance) {
         deduped.set(key, church);
         continue;
       }
@@ -569,32 +613,39 @@ export default function Home() {
 
     const dedupedResults = Array.from(deduped.values());
 
-    const withDistance = dedupedResults
-      .filter((church) => church.distanceMiles !== null && Number.isFinite(church.distanceMiles))
-      .sort((a, b) => {
-        if (a.distanceMiles! !== b.distanceMiles!) {
-          return a.distanceMiles! - b.distanceMiles!;
-        }
+    const hasLocation = activeLocation !== null;
 
-        if (a.bestScore !== b.bestScore) {
-          return a.bestScore - b.bestScore;
-        }
+    if (hasLocation) {
+  return dedupedResults.sort((a, b) => {
+    if (activeLocation?.source === "manual") {
+      if (a.exactZipMatch !== b.exactZipMatch) {
+        return a.exactZipMatch ? -1 : 1;
+      }
+    }
 
-        return a.name.localeCompare(b.name);
-      });
+    const aDistance = a.distanceMiles ?? Number.POSITIVE_INFINITY;
+    const bDistance = b.distanceMiles ?? Number.POSITIVE_INFINITY;
 
-    const withoutDistance = dedupedResults
-      .filter((church) => church.distanceMiles === null || !Number.isFinite(church.distanceMiles))
-      .sort((a, b) => {
-        if (a.bestScore !== b.bestScore) {
-          return a.bestScore - b.bestScore;
-        }
+    if (aDistance !== bDistance) {
+      return aDistance - bDistance;
+    }
 
-        return a.name.localeCompare(b.name);
-      });
+    if (a.bestScore !== b.bestScore) {
+      return a.bestScore - b.bestScore;
+    }
 
-    return [...withDistance, ...withoutDistance];
-  }, [activeLocation]);
+    return a.name.localeCompare(b.name);
+  });
+}
+
+    return dedupedResults.sort((a, b) => {
+      if (a.bestScore !== b.bestScore) {
+        return a.bestScore - b.bestScore;
+      }
+
+      return a.name.localeCompare(b.name);
+    });
+  }, [activeLocation, filter]);
 
   const visibleChurches = filteredChurches.slice(0, visibleCount);
   const isLoadingLocation = locationStatus === "loading";
@@ -685,80 +736,28 @@ export default function Home() {
               Find the closest church to confess
             </div>
 
-            <div style={{ position: "relative" }}>
-              <input
-                type="text"
-                placeholder="ZIP code"
-                value={manualAddress}
-                onChange={(e) => {
-                  setManualAddress(e.target.value);
-                  setShowEditor(true);
-                }}
-                onFocus={() => {
-                  if (suggestions.length) setShowSuggestions(true);
-                }}
-                onBlur={() => {
-                  if (blurTimeoutRef.current) {
-                    window.clearTimeout(blurTimeoutRef.current);
-                  }
-                  blurTimeoutRef.current = window.setTimeout(() => {
-                    setShowSuggestions(false);
-                  }, 150);
-                }}
-                style={{
-                  width: "100%",
-                  padding: "18px 22px",
-                  fontSize: "20px",
-                  border: "1px solid #dcdcdc",
-                  borderRadius: "999px",
-                  outline: "none",
-                  backgroundColor: "#ffffff",
-                  color: "#111111",
-                  boxSizing: "border-box",
-                }}
-              />
-
-              {showSuggestions && suggestions.length > 0 && (
-                <div
-                  style={{
-                    position: "absolute",
-                    top: "calc(100% + 10px)",
-                    left: 0,
-                    right: 0,
-                    backgroundColor: "#ffffff",
-                    border: "1px solid #ececec",
-                    borderRadius: "18px",
-                    boxShadow: "0 18px 40px rgba(0,0,0,0.12)",
-                    overflow: "hidden",
-                    zIndex: 50,
-                  }}
-                >
-                  {suggestions.map((suggestion, index) => (
-                    <button
-                      key={`${suggestion.label}-${index}`}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => chooseSuggestion(suggestion)}
-                      style={{
-                        display: "block",
-                        width: "100%",
-                        textAlign: "left",
-                        padding: "16px 18px",
-                        backgroundColor: "#ffffff",
-                        border: "none",
-                        borderBottom:
-                          index === suggestions.length - 1 ? "none" : "1px solid #f3f3f3",
-                        cursor: "pointer",
-                        fontSize: "15px",
-                        lineHeight: 1.45,
-                        color: "#222222",
-                      }}
-                    >
-                      {suggestion.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={5}
+              placeholder="ZIP code"
+              value={zipInput}
+              onChange={(e) => {
+                const next = e.target.value.replace(/\D/g, "").slice(0, 5);
+                setZipInput(next);
+              }}
+              style={{
+                width: "100%",
+                padding: "18px 22px",
+                fontSize: "20px",
+                border: "1px solid #dcdcdc",
+                borderRadius: "999px",
+                outline: "none",
+                backgroundColor: "#ffffff",
+                color: "#111111",
+                boxSizing: "border-box",
+              }}
+            />
 
             <div
               style={{
@@ -781,7 +780,7 @@ export default function Home() {
                   backgroundColor: "#ffffff",
                   color: "#3b82f6",
                   fontSize: "16px",
-                  fontWeight: 1000,
+                  fontWeight: 700,
                   cursor: "pointer",
                   boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
                 }}
@@ -791,31 +790,16 @@ export default function Home() {
               </button>
             </div>
 
-            <div
-              style={{
-                marginTop: "12px",
-                color: "#666666",
-                fontSize: "14px",
-                lineHeight: 1.5,
-              }}
-            >
-              {locationMessage}
-            </div>
-
-            {showEditor && locationStatus === "denied" && (
+            {!!locationMessage && (
               <div
                 style={{
-                  marginTop: "14px",
-                  padding: "16px",
-                  border: "1px solid #ecd7ae",
-                  borderRadius: "16px",
-                  backgroundColor: "#fffaf2",
+                  marginTop: "12px",
+                  color: "#666666",
                   fontSize: "14px",
-                  color: "#555555",
                   lineHeight: 1.5,
                 }}
               >
-                Location is turned off for Safari. Enable it in Safari site settings, or keep typing city, state above and choose one of the suggestions.
+                {locationMessage}
               </div>
             )}
           </div>
@@ -872,6 +856,26 @@ export default function Home() {
             ←
           </button>
 
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value as FilterOption)}
+            style={{
+              padding: "10px 12px",
+              fontSize: "15px",
+              border: "1px solid #cccccc",
+              borderRadius: "10px",
+              backgroundColor: "#ffffff",
+              color: "#111111",
+            }}
+          >
+            <option value="next">Next Available</option>
+            <option value="today">Today</option>
+            <option value="tomorrow">Tomorrow</option>
+            <option value="thisWeek">This Week</option>
+            <option value="saturday">Saturday</option>
+            <option value="sunday">Sunday</option>
+          </select>
+
           <button
             onClick={openEditor}
             style={{
@@ -892,26 +896,17 @@ export default function Home() {
           <div
             style={{
               marginTop: "10px",
-              position: "relative",
             }}
           >
             <input
               type="text"
-              placeholder="City, state"
-              value={manualAddress}
+              inputMode="numeric"
+              maxLength={5}
+              placeholder="ZIP code"
+              value={zipInput}
               onChange={(e) => {
-                setManualAddress(e.target.value);
-              }}
-              onFocus={() => {
-                if (suggestions.length) setShowSuggestions(true);
-              }}
-              onBlur={() => {
-                if (blurTimeoutRef.current) {
-                  window.clearTimeout(blurTimeoutRef.current);
-                }
-                blurTimeoutRef.current = window.setTimeout(() => {
-                  setShowSuggestions(false);
-                }, 150);
+                const next = e.target.value.replace(/\D/g, "").slice(0, 5);
+                setZipInput(next);
               }}
               style={{
                 width: "100%",
@@ -925,47 +920,6 @@ export default function Home() {
                 boxSizing: "border-box",
               }}
             />
-
-            {showSuggestions && suggestions.length > 0 && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: "calc(100% + 10px)",
-                  left: 0,
-                  right: 0,
-                  backgroundColor: "#ffffff",
-                  border: "1px solid #ececec",
-                  borderRadius: "18px",
-                  boxShadow: "0 18px 40px rgba(0,0,0,0.12)",
-                  overflow: "hidden",
-                  zIndex: 50,
-                }}
-              >
-                {suggestions.map((suggestion, index) => (
-                  <button
-                    key={`${suggestion.label}-${index}`}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => chooseSuggestion(suggestion)}
-                    style={{
-                      display: "block",
-                      width: "100%",
-                      textAlign: "left",
-                      padding: "16px 18px",
-                      backgroundColor: "#ffffff",
-                      border: "none",
-                      borderBottom:
-                        index === suggestions.length - 1 ? "none" : "1px solid #f3f3f3",
-                      cursor: "pointer",
-                      fontSize: "15px",
-                      lineHeight: 1.45,
-                      color: "#222222",
-                    }}
-                  >
-                    {suggestion.label}
-                  </button>
-                ))}
-              </div>
-            )}
 
             <div
               style={{
@@ -1000,22 +954,25 @@ export default function Home() {
               </button>
             </div>
 
-            <div
-              style={{
-                marginTop: "8px",
-                color: "#666666",
-                fontSize: "13px",
-                lineHeight: 1.4,
-              }}
-            >
-              {locationMessage}
-            </div>
+            {!!locationMessage && (
+              <div
+                style={{
+                  marginTop: "8px",
+                  color: "#666666",
+                  fontSize: "13px",
+                  lineHeight: 1.4,
+                }}
+              >
+                {locationMessage}
+              </div>
+            )}
           </div>
         )}
       </div>
 
       <div style={{ display: "grid", gap: "16px" }}>
         {visibleChurches.map((church) => {
+          const slots = sortSlotsForDisplay(getSlotsForFilter(church, filter));
           const renderKey = `${church.id}-${church.zip}-${church.bestScore}-${church.website || "nowebsite"}`;
 
           return (
@@ -1052,17 +1009,17 @@ export default function Home() {
               </p>
 
               {activeLocation?.source === "gps" && church.distanceMiles !== null && (
-  <p
-    style={{
-      margin: "0 0 12px 0",
-      color: "#0f5a2b",
-      fontWeight: 700,
-      fontSize: "16px",
-    }}
-  >
-    {formatDistance(church.distanceMiles)}
-  </p>
-)}
+                <p
+                  style={{
+                    margin: "0 0 12px 0",
+                    color: "#0f5a2b",
+                    fontWeight: 700,
+                    fontSize: "16px",
+                  }}
+                >
+                  {formatDistance(church.distanceMiles)}
+                </p>
+              )}
 
               <div style={{ margin: "0 0 18px 0" }}>
                 <p
@@ -1077,7 +1034,7 @@ export default function Home() {
                 </p>
 
                 <div style={{ display: "grid", gap: "10px" }}>
-                  {sortSlotsForDisplay(church.confessionTimes).map((slot, index) => (
+                  {slots.map((slot, index) => (
                     <div
                       key={`${church.id}-${slot.day}-${slot.start}-${index}`}
                       style={{
