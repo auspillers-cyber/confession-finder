@@ -47,34 +47,116 @@ export default async function StatePage({ params }: PageProps) {
   const cities = getAllCitiesByState(stateSlug);
 
   return (
-    <main style={{ maxWidth: 1000, margin: "0 auto", padding: "40px 20px" }}>
-      <h1 style={{ fontSize: "2.5rem", marginBottom: 12 }}>
+    <main
+      style={{
+        maxWidth: 1000,
+        margin: "0 auto",
+        padding: "40px 20px 60px",
+        background:
+          "linear-gradient(to bottom, #f4fbff 0%, #fcfdfd 30%, #ffffff 100%)",
+        minHeight: "100vh",
+      }}
+    >
+      <h1
+        style={{
+          fontSize: "2.7rem",
+          marginBottom: 12,
+          color: "#12324a",
+        }}
+      >
         Confession Times in {stateName}
       </h1>
 
-      <p style={{ fontSize: "1.1rem", color: "#444", marginBottom: 32 }}>
-        Find Catholic churches in {stateName} with confession schedules, church
-        details, and city pages.
+      <p
+        style={{
+          fontSize: "1.1rem",
+          color: "#4f6475",
+          marginBottom: 28,
+          maxWidth: 700,
+          lineHeight: 1.6,
+        }}
+      >
+        Find Catholic churches in {stateName} with confession schedules, or use
+        the live finder to locate confession times near you instantly.
       </p>
 
+      {/* 🔥 CTA BLOCK */}
+      <section
+        style={{
+          padding: 24,
+          border: "1px solid #d9ebf5",
+          borderRadius: 18,
+          marginBottom: 28,
+          background: "linear-gradient(135deg, #eaf7ff 0%, #f5fbff 100%)",
+          boxShadow: "0 10px 30px rgba(28, 70, 102, 0.08)",
+        }}
+      >
+        <h2
+          style={{
+            fontSize: "1.45rem",
+            marginBottom: 10,
+            color: "#12324a",
+          }}
+        >
+          Find confession near you right now
+        </h2>
+
+        <p
+          style={{
+            margin: "0 0 18px 0",
+            color: "#476173",
+            lineHeight: 1.6,
+            maxWidth: 640,
+          }}
+        >
+          Use the live search tool to instantly find confession times based on
+          your location.
+        </p>
+
+        <Link
+          href="/"
+          style={{
+            display: "inline-block",
+            background: "#1d8fe1",
+            color: "#fff",
+            padding: "14px 22px",
+            borderRadius: 12,
+            textDecoration: "none",
+            fontWeight: 700,
+            boxShadow: "0 8px 20px rgba(29, 143, 225, 0.22)",
+          }}
+        >
+          Find Confession Near You
+        </Link>
+      </section>
+
+      {/* INFO BOX */}
       <div
         style={{
           padding: 20,
-          border: "1px solid #ddd",
-          borderRadius: 12,
+          border: "1px solid #dcecf5",
+          borderRadius: 16,
           marginBottom: 32,
-          background: "#fafafa",
-          color: "#111",
+          background: "#ffffff",
+          color: "#234055",
+          boxShadow: "0 6px 18px rgba(31, 61, 90, 0.05)",
         }}
       >
         <p style={{ margin: 0 }}>
-          <strong>{churches.length}</strong> churches with confession data found in{" "}
-          <strong>{stateName}</strong>.
+          <strong>{churches.length}</strong> churches with confession data found
+          in <strong>{stateName}</strong>.
         </p>
       </div>
 
-      <section style={{ marginBottom: 40 }}>
-        <h2 style={{ fontSize: "1.6rem", marginBottom: 16 }}>
+      {/* CITY LIST */}
+      <section>
+        <h2
+          style={{
+            fontSize: "1.8rem",
+            marginBottom: 18,
+            color: "#12324a",
+          }}
+        >
           Browse Cities in {stateName}
         </h2>
 
@@ -91,16 +173,29 @@ export default async function StatePage({ params }: PageProps) {
               href={`/${city.stateSlug}/${city.citySlug}`}
               style={{
                 display: "block",
-                border: "1px solid #ddd",
-                borderRadius: 12,
-                padding: 16,
+                border: "1px solid #dcebf3",
+                borderRadius: 16,
+                padding: 18,
                 textDecoration: "none",
-                color: "#111",
-                background: "#fff",
+                color: "#163247",
+                background: "#ffffff",
+                boxShadow: "0 8px 22px rgba(28, 70, 102, 0.06)",
+                transition: "transform 0.15s ease",
               }}
             >
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>{city.city}</div>
-              <div style={{ color: "#555" }}>{city.count} churches</div>
+              <div
+                style={{
+                  fontWeight: 700,
+                  marginBottom: 6,
+                  fontSize: "1.05rem",
+                }}
+              >
+                {city.city}
+              </div>
+
+              <div style={{ color: "#5a7182" }}>
+                {city.count} churches
+              </div>
             </Link>
           ))}
         </div>
