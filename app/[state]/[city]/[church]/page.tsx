@@ -29,8 +29,8 @@ export async function generateMetadata({ params }: PageProps) {
   }
 
   return {
-    title: `${church.churchName} Confession Times in ${church.city}, ${church.state} | Catholic Churches offering Confession`,
-    description: `View confession times for ${church.churchName} in ${church.city}, ${church.state}. See church address, website, and confession schedule.`,
+    title: `Confession Times at ${church.churchName} (${church.city}, ${church.state})`,
+    description: `View confession times at ${church.churchName} in ${church.city}, ${church.state}. Find confession near you today.`,
   };
 }
 

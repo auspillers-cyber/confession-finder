@@ -28,7 +28,7 @@ export async function generateMetadata({ params }: PageProps) {
   const stateName = churches[0].state;
 
   return {
-    title: `Confession Times in ${stateName} | Catholic Churches offering Confession`,
+   title: `Confession Times in  ${stateName} | Catholic Churches offering Confession`,
     description: `Find Catholic confession times in ${stateName}. Browse churches by city and view confession schedules.`,
   };
 }

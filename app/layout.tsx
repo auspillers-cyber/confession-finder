@@ -14,10 +14,11 @@ const geistMono = Geist_Mono({
 
 export const metadata = {
   title: {
-    default: "Confession Near You",
-    template: "%s | Confession Near You",
+    default: "Confession Near Me | Catholic Confession Finder",
+    template: "%s | Confession Near Me",
   },
-  description: "Find Catholic confession times near you instantly.",
+  description:
+    "Find Catholic confession times near you instantly. Search by location or browse churches offering confession today.",
 };
 
 export default function RootLayout({
