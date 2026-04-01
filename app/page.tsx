@@ -206,7 +206,7 @@ function transformChurches(raw: RawChurch[]): Church[] {
         confessionTimes.push({
           day: normalizedDay,
           start,
-          end: clean(slot.end_time),
+          end: clean(slot.end_time) || start,
           notes: clean(slot.notes),
         });
       }
@@ -393,6 +393,34 @@ function getBestScoreForFilter(church: Church, filter: FilterOption): number {
   const bestSlot = getBestSlotForFilter(church, filter);
   if (!bestSlot) return Number.POSITIVE_INFINITY;
   return getSlotScore(bestSlot);
+}
+function getNextDateForSlotDay(day: string): string {
+  const now = new Date();
+  const todayIndex = now.getDay();
+
+  if (day === "Weekdays") {
+    for (let offset = 0; offset < 14; offset++) {
+      const candidate = new Date(now);
+      candidate.setDate(now.getDate() + offset);
+      const candidateDay = candidate.getDay();
+      if (candidateDay >= 1 && candidateDay <= 5) {
+        return `${candidate.getFullYear()}-${String(candidate.getMonth() + 1).padStart(2, "0")}-${String(candidate.getDate()).padStart(2, "0")}`;
+      }
+    }
+  }
+
+  if (day === "Daily") {
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  }
+
+  const targetIndex = dayOrder.indexOf(day);
+  let daysAway = targetIndex - todayIndex;
+  if (daysAway < 0) daysAway += 7;
+
+  const result = new Date(now);
+  result.setDate(now.getDate() + daysAway);
+
+  return `${result.getFullYear()}-${String(result.getMonth() + 1).padStart(2, "0")}-${String(result.getDate()).padStart(2, "0")}`;
 }
 
 function haversineMiles(
