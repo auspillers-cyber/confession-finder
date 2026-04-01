@@ -86,7 +86,7 @@ const dayOrder = [
   "Thursday",
   "Friday",
   "Saturday",
-];
+] as const;
 
 function clean(value: unknown): string {
   return (value ?? "").toString().trim();
@@ -164,6 +164,10 @@ function parseTimeToMinutes(time: string): number | null {
   if (hhmmMatch) {
     const hour = Number(hhmmMatch[1]);
     const minute = Number(hhmmMatch[2]);
+
+    if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null;
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+
     return hour * 60 + minute;
   }
 
@@ -315,7 +319,7 @@ function getSlotScore(slot: ConfessionTime): number {
     return Number.POSITIVE_INFINITY;
   }
 
-  const slotDayIndex = dayOrder.indexOf(slot.day);
+  const slotDayIndex = dayOrder.indexOf(slot.day as (typeof dayOrder)[number]);
   if (slotDayIndex === -1) return Number.POSITIVE_INFINITY;
 
   let daysAway = slotDayIndex - currentDayIndex;
@@ -331,7 +335,8 @@ function getSlotScore(slot: ConfessionTime): number {
 function getSlotsForFilter(church: Church, filter: FilterOption): ConfessionTime[] {
   const today = getTodayName();
   const tomorrow = getTomorrowName();
-  const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+  const now = new Date();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
 
   return church.confessionTimes.filter((slot) => {
     const slotMinutes = parseTimeToMinutes(slot.start);
@@ -394,33 +399,53 @@ function getBestScoreForFilter(church: Church, filter: FilterOption): number {
   if (!bestSlot) return Number.POSITIVE_INFINITY;
   return getSlotScore(bestSlot);
 }
-function getNextDateForSlotDay(day: string): string {
-  const now = new Date();
-  const todayIndex = now.getDay();
 
-  if (day === "Weekdays") {
+function formatYmd(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate()
+  ).padStart(2, "0")}`;
+}
+
+function getNextDateForSlot(slot: ConfessionTime): string {
+  const now = new Date();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const slotMinutes = parseTimeToMinutes(slot.start) ?? 0;
+
+  if (slot.day === "Daily") {
+    const result = new Date(now);
+    if (slotMinutes < nowMinutes) {
+      result.setDate(result.getDate() + 1);
+    }
+    return formatYmd(result);
+  }
+
+  if (slot.day === "Weekdays") {
     for (let offset = 0; offset < 14; offset++) {
       const candidate = new Date(now);
       candidate.setDate(now.getDate() + offset);
       const candidateDay = candidate.getDay();
-      if (candidateDay >= 1 && candidateDay <= 5) {
-        return `${candidate.getFullYear()}-${String(candidate.getMonth() + 1).padStart(2, "0")}-${String(candidate.getDate()).padStart(2, "0")}`;
-      }
+      const isWeekday = candidateDay >= 1 && candidateDay <= 5;
+
+      if (!isWeekday) continue;
+      if (offset === 0 && slotMinutes < nowMinutes) continue;
+
+      return formatYmd(candidate);
     }
   }
 
-  if (day === "Daily") {
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const targetIndex = dayOrder.indexOf(slot.day as (typeof dayOrder)[number]);
+  if (targetIndex === -1) {
+    return formatYmd(now);
   }
 
-  const targetIndex = dayOrder.indexOf(day);
-  let daysAway = targetIndex - todayIndex;
+  let daysAway = targetIndex - now.getDay();
   if (daysAway < 0) daysAway += 7;
+  if (daysAway === 0 && slotMinutes < nowMinutes) daysAway = 7;
 
   const result = new Date(now);
   result.setDate(now.getDate() + daysAway);
 
-  return `${result.getFullYear()}-${String(result.getMonth() + 1).padStart(2, "0")}-${String(result.getDate()).padStart(2, "0")}`;
+  return formatYmd(result);
 }
 
 function haversineMiles(
@@ -464,16 +489,20 @@ function formatDistance(distance: number | null): string {
 
 function sortSlotsForDisplay(slots: ConfessionTime[]): ConfessionTime[] {
   return [...slots].sort((a, b) => {
-    const dayA = dayOrder.indexOf(a.day);
-    const dayB = dayOrder.indexOf(b.day);
+    const scoreA = getSlotScore(a);
+    const scoreB = getSlotScore(b);
 
-    if (dayA !== dayB) return dayA - dayB;
+    if (scoreA !== scoreB) return scoreA - scoreB;
 
-    const aMinutes = parseTimeToMinutes(a.start) ?? 99999;
-    const bMinutes = parseTimeToMinutes(b.start) ?? 99999;
+    const aMinutes = parseTimeToMinutes(a.start) ?? Number.POSITIVE_INFINITY;
+    const bMinutes = parseTimeToMinutes(b.start) ?? Number.POSITIVE_INFINITY;
 
     return aMinutes - bMinutes;
   });
+}
+
+function buildAddress(church: Church): string {
+  return [church.address, church.city, church.state, church.zip].filter(Boolean).join(", ");
 }
 
 export default function Home() {
@@ -595,16 +624,15 @@ export default function Home() {
         const bestSlot = getBestSlotForFilter(church, filter);
         const bestScore = getBestScoreForFilter(church, filter);
 
-      return {
-  ...church,
-  distanceMiles,
-  bestSlot,
-  bestScore,
-  exactZipMatch:
-    activeLocation?.source === "manual" &&
-    clean(church.zip) === clean(activeLocation.label),
-};
-
+        return {
+          ...church,
+          distanceMiles,
+          bestSlot,
+          bestScore,
+          exactZipMatch:
+            activeLocation?.source === "manual" &&
+            clean(church.zip) === clean(activeLocation.label),
+        };
       });
 
     const deduped = new Map<string, ChurchResult>();
@@ -640,31 +668,30 @@ export default function Home() {
     }
 
     const dedupedResults = Array.from(deduped.values());
-
     const hasLocation = activeLocation !== null;
 
     if (hasLocation) {
-  return dedupedResults.sort((a, b) => {
-    if (activeLocation?.source === "manual") {
-      if (a.exactZipMatch !== b.exactZipMatch) {
-        return a.exactZipMatch ? -1 : 1;
-      }
+      return dedupedResults.sort((a, b) => {
+        if (activeLocation?.source === "manual") {
+          if (a.exactZipMatch !== b.exactZipMatch) {
+            return a.exactZipMatch ? -1 : 1;
+          }
+        }
+
+        const aDistance = a.distanceMiles ?? Number.POSITIVE_INFINITY;
+        const bDistance = b.distanceMiles ?? Number.POSITIVE_INFINITY;
+
+        if (aDistance !== bDistance) {
+          return aDistance - bDistance;
+        }
+
+        if (a.bestScore !== b.bestScore) {
+          return a.bestScore - b.bestScore;
+        }
+
+        return a.name.localeCompare(b.name);
+      });
     }
-
-    const aDistance = a.distanceMiles ?? Number.POSITIVE_INFINITY;
-    const bDistance = b.distanceMiles ?? Number.POSITIVE_INFINITY;
-
-    if (aDistance !== bDistance) {
-      return aDistance - bDistance;
-    }
-
-    if (a.bestScore !== b.bestScore) {
-      return a.bestScore - b.bestScore;
-    }
-
-    return a.name.localeCompare(b.name);
-  });
-}
 
     return dedupedResults.sort((a, b) => {
       if (a.bestScore !== b.bestScore) {
@@ -1002,6 +1029,7 @@ export default function Home() {
         {visibleChurches.map((church) => {
           const slots = sortSlotsForDisplay(getSlotsForFilter(church, filter));
           const renderKey = `${church.id}-${church.zip}-${church.bestScore}-${church.website || "nowebsite"}`;
+          const fullAddress = buildAddress(church);
 
           return (
             <div
@@ -1033,7 +1061,7 @@ export default function Home() {
                   lineHeight: 1.5,
                 }}
               >
-                {church.address}, {church.city}, {church.state} {church.zip}
+                {fullAddress}
               </p>
 
               {activeLocation?.source === "gps" && church.distanceMiles !== null && (
@@ -1050,85 +1078,78 @@ export default function Home() {
               )}
 
               <div style={{ margin: "0 0 18px 0" }}>
-  <p
-    style={{
-      margin: "0 0 12px 0",
-      fontWeight: 700,
-      fontSize: "18px",
-      letterSpacing: "-0.01em",
-    }}
-  >
-    Confession time:
-  </p>
+                <p
+                  style={{
+                    margin: "0 0 12px 0",
+                    fontWeight: 700,
+                    fontSize: "18px",
+                    letterSpacing: "-0.01em",
+                  }}
+                >
+                  Confession time:
+                </p>
 
-  <div style={{ display: "grid", gap: "10px" }}>
-    {slots.map((slot, index) => {
-      const slotDate = getNextDateForSlotDay(slot.day);
+                <div style={{ display: "grid", gap: "10px" }}>
+                  {slots.map((slot, index) => {
+                    const slotDate = getNextDateForSlot(slot);
+                    const addToCalendarHref =
+                      `/api/calendar?church=${encodeURIComponent(church.name)}` +
+                      `&date=${encodeURIComponent(slotDate)}` +
+                      `&start=${encodeURIComponent(formatTime(slot.start))}` +
+                      `&end=${encodeURIComponent(formatTime(slot.end || slot.start))}` +
+                      `&address=${encodeURIComponent(fullAddress)}` +
+                      `&tz=${encodeURIComponent("America/New_York")}`;
 
-      return (
-        <div
-          key={`${church.id}-${slot.day}-${slot.start}-${index}`}
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "8px",
-            alignItems: "center",
-            fontSize: "17px",
-            lineHeight: 1.4,
-          }}
-        >
-          <span>
-            <strong>
-              {slot.day === "Weekdays" ? "Weekdays (Mon–Fri)" : slot.day}
-            </strong>{" "}
-            • {formatTime(slot.start)}
-            {slot.end ? ` - ${formatTime(slot.end)}` : ""}
-          </span>
+                    return (
+                      <div
+                        key={`${church.id}-${slot.day}-${slot.start}-${index}`}
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: "8px",
+                          alignItems: "center",
+                          fontSize: "17px",
+                          lineHeight: 1.4,
+                        }}
+                      >
+                        <span>
+                          <strong>
+                            {slot.day === "Weekdays" ? "Weekdays (Mon–Fri)" : slot.day}
+                          </strong>{" "}
+                          • {formatTime(slot.start)}
+                          {slot.end ? ` - ${formatTime(slot.end)}` : ""}
+                        </span>
 
-          <a
-            href={`/api/calendar?church=${encodeURIComponent(
-              church.name
-            )}&date=${encodeURIComponent(
-              slotDate
-            )}&start=${encodeURIComponent(
-              slot.start
-            )}&end=${encodeURIComponent(
-              slot.end || slot.start
-            )}&address=${encodeURIComponent(
-              church.address
-            )}&city=${encodeURIComponent(
-              church.city
-            )}&state=${encodeURIComponent(
-              church.state
-            )}&zip=${encodeURIComponent(church.zip)}`}
-            style={{
-              textDecoration: "none",
-              fontSize: "16px",
-              whiteSpace: "nowrap",
-            }}
-          >
-            <span
-              style={{
-                color: "#1a73e8",
-                fontWeight: 500,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "4px",
-              }}
-            >
-              Add to Calendar
-            </span>
-          </a>
-        </div>
-      );
-    })}
-  </div>
-</div>
+                        <a
+                          href={addToCalendarHref}
+                          style={{
+                            textDecoration: "none",
+                            fontSize: "16px",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          <span
+                            style={{
+                              color: "#1a73e8",
+                              fontWeight: 500,
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                            }}
+                          >
+                            Add to Calendar
+                          </span>
+                        </a>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
 
               <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                 <a
                   href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                    `${church.address}, ${church.city}, ${church.state} ${church.zip}`
+                    fullAddress
                   )}`}
                   target="_blank"
                   rel="noreferrer"
