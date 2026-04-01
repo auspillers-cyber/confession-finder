@@ -1050,74 +1050,80 @@ export default function Home() {
               )}
 
               <div style={{ margin: "0 0 18px 0" }}>
-                <p
-                  style={{
-                    margin: "0 0 12px 0",
-                    fontWeight: 700,
-                    fontSize: "18px",
-                    letterSpacing: "-0.01em",
-                  }}
-                >
-                  Confession time:
-                </p>
+  <p
+    style={{
+      margin: "0 0 12px 0",
+      fontWeight: 700,
+      fontSize: "18px",
+      letterSpacing: "-0.01em",
+    }}
+  >
+    Confession time:
+  </p>
 
-                <div style={{ display: "grid", gap: "10px" }}>
-                  {slots.map((slot, index) => (
-                    <div
-                      key={`${church.id}-${slot.day}-${slot.start}-${index}`}
-                      style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        gap: "8px",
-                        alignItems: "center",
-                        fontSize: "17px",
-                        lineHeight: 1.4,
-                      }}
-                    >
-                      <span>
-                        <strong>
-                          {slot.day === "Weekdays" ? "Weekdays (Mon–Fri)" : slot.day}
-                        </strong>{" "}
-                        • {formatTime(slot.start)}
-                        {slot.end ? ` - ${formatTime(slot.end)}` : ""}
-                      </span>
+  <div style={{ display: "grid", gap: "10px" }}>
+    {slots.map((slot, index) => {
+      const slotDate = getNextDateForSlotDay(slot.day);
 
-                      <a
-                        href={`/api/calendar?church=${encodeURIComponent(
-                          church.name
-                        )}&day=${encodeURIComponent(slot.day)}&start=${encodeURIComponent(
-                          slot.start
-                        )}&end=${encodeURIComponent(
-                          slot.end || slot.start
-                        )}&address=${encodeURIComponent(
-                          church.address
-                        )}&city=${encodeURIComponent(
-                          church.city
-                        )}&state=${encodeURIComponent(
-                          church.state
-                        )}&zip=${encodeURIComponent(church.zip)}`}
-                        style={{
-                          textDecoration: "none",
-                          fontSize: "16px",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        <span
-                          style={{
-                            color: "#1a73e8",
-                            fontWeight: 500,
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "4px",
-                          }}
-                        >
-                          Add to Calendar
-                        </span>
-                      </a>
-                    </div>
-                  ))}
-                </div>
-              </div>
+      return (
+        <div
+          key={`${church.id}-${slot.day}-${slot.start}-${index}`}
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "8px",
+            alignItems: "center",
+            fontSize: "17px",
+            lineHeight: 1.4,
+          }}
+        >
+          <span>
+            <strong>
+              {slot.day === "Weekdays" ? "Weekdays (Mon–Fri)" : slot.day}
+            </strong>{" "}
+            • {formatTime(slot.start)}
+            {slot.end ? ` - ${formatTime(slot.end)}` : ""}
+          </span>
+
+          <a
+            href={`/api/calendar?church=${encodeURIComponent(
+              church.name
+            )}&date=${encodeURIComponent(
+              slotDate
+            )}&start=${encodeURIComponent(
+              slot.start
+            )}&end=${encodeURIComponent(
+              slot.end || slot.start
+            )}&address=${encodeURIComponent(
+              church.address
+            )}&city=${encodeURIComponent(
+              church.city
+            )}&state=${encodeURIComponent(
+              church.state
+            )}&zip=${encodeURIComponent(church.zip)}`}
+            style={{
+              textDecoration: "none",
+              fontSize: "16px",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <span
+              style={{
+                color: "#1a73e8",
+                fontWeight: 500,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
+              }}
+            >
+              Add to Calendar
+            </span>
+          </a>
+        </div>
+      );
+    })}
+  </div>
+</div>
 
               <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                 <a
