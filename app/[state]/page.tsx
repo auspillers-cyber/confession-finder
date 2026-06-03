@@ -3,9 +3,13 @@ import { notFound } from "next/navigation";
 import {
   getAllCitiesByState,
   getChurchesByState,
+  getAllStateSlugs,
 } from "@/lib/churches";
 
-export const dynamic = "force-dynamic";
+export async function generateStaticParams() {
+  const slugs = getAllStateSlugs();
+  return slugs.map((stateSlug) => ({ state: stateSlug }));
+}
 
 type PageProps = {
   params: Promise<{
@@ -28,8 +32,8 @@ export async function generateMetadata({ params }: PageProps) {
   const stateName = churches[0].state;
 
   return {
-   title: `Confession Times in  ${stateName} | Catholic Churches offering Confession`,
-    description: `Find Catholic confession times in ${stateName}. Browse churches by city and view confession schedules.`,
+    title: `Catholic Confession Times in ${stateName} | Find Confession Near You`,
+    description: `Find Catholic confession times in ${stateName}. Browse ${stateName} churches by city and view weekly confession schedules.`,
   };
 }
 

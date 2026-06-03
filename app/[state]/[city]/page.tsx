@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getChurchesByCity } from "@/lib/churches";
+import { getChurchesByCity, getAllCityPages } from "@/lib/churches";
 
-export const dynamic = "force-dynamic";
+export async function generateStaticParams() {
+  const cities = getAllCityPages();
+  return cities.map((c) => ({ state: c.stateSlug, city: c.citySlug }));
+}
 
 type PageProps = {
   params: Promise<{
@@ -29,8 +32,8 @@ export async function generateMetadata({ params }: PageProps) {
   const stateName = churches[0].state;
 
   return {
-    title: `Confession Near Me in ${cityName}, ${stateName}`,
-    description: `Find Catholic confession near you in ${cityName}, ${stateName}. View confession times today at local churches.`,
+    title: `Catholic Confession Times in ${cityName}, ${stateName}`,
+    description: `Find Catholic confession times in ${cityName}, ${stateName}. View weekly schedules at ${churches.length} local churches offering confession.`,
   };
 }
 
@@ -48,7 +51,37 @@ export default async function CityPage({ params }: PageProps) {
   const cityName = churches[0].city;
   const stateName = churches[0].state;
 
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: `Catholic Confession Times in ${cityName}, ${stateName}`,
+    description: `Find Catholic confession times at ${churches.length} churches in ${cityName}, ${stateName}.`,
+    numberOfItems: churches.length,
+    itemListElement: churches.map((church, index) => ({
+      "@type": "ListItem",
+      position: index + 1,
+      item: {
+        "@type": "CatholicChurch",
+        name: church.churchName,
+        address: {
+          "@type": "PostalAddress",
+          streetAddress: church.address,
+          addressLocality: church.city,
+          addressRegion: church.state,
+          postalCode: church.zip,
+          addressCountry: "US",
+        },
+        ...(church.website ? { url: church.website } : {}),
+      },
+    })),
+  };
+
   return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
     <main
       style={{
         maxWidth: 1000,
@@ -264,5 +297,6 @@ export default async function CityPage({ params }: PageProps) {
         </div>
       </section>
     </main>
+    </>
   );
 }

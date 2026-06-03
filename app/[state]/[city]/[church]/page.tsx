@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getChurchBySlugs } from "@/lib/churches";
+import { getChurchBySlugs, getAllChurchPageParams } from "@/lib/churches";
 
-export const dynamic = "force-dynamic";
+export async function generateStaticParams() {
+  const churches = getAllChurchPageParams();
+  return churches.map((c) => ({ state: c.state, city: c.city, church: c.church }));
+}
 
 type PageProps = {
   params: Promise<{
@@ -49,7 +52,30 @@ export default async function ChurchPage({ params }: PageProps) {
 
   const scheduleEntries = Object.entries(church.confessionSchedule);
 
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "CatholicChurch",
+    name: church.churchName,
+    address: {
+      "@type": "PostalAddress",
+      streetAddress: church.address,
+      addressLocality: church.city,
+      addressRegion: church.state,
+      postalCode: church.zip,
+      addressCountry: "US",
+    },
+    ...(church.website ? { url: church.website } : {}),
+    ...(church.latitude && church.longitude
+      ? { geo: { "@type": "GeoCoordinates", latitude: church.latitude, longitude: church.longitude } }
+      : {}),
+  };
+
   return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
     <main
       style={{
         maxWidth: 800,
@@ -253,5 +279,6 @@ export default async function ChurchPage({ params }: PageProps) {
         </a>
       )}
     </main>
+    </>
   );
 }
