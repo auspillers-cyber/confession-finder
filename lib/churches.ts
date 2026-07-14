@@ -88,7 +88,9 @@ function normalizeChurch(church: RawChurch): Church {
 }
 
 export function getAllChurches(): Church[] {
-  return churches.map(normalizeChurch);
+  return churches
+    .map(normalizeChurch)
+    .filter((church) => church.city && church.state);
 }
 
 export function getChurchesByState(stateSlug: string): Church[] {

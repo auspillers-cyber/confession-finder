@@ -1,6 +1,6 @@
 import { MetadataRoute } from "next";
 
-const BASE_URL = "http://localhost:3000";
+const BASE_URL = "https://confessionnearyou.com";
 
 export default function robots(): MetadataRoute.Robots {
   return {
