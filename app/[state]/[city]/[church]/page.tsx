@@ -2,9 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getChurchBySlugs, getAllChurchPageParams } from "@/lib/churches";
 
+export const revalidate = 86400;
+
 export async function generateStaticParams() {
-  const churches = getAllChurchPageParams();
-  return churches.map((c) => ({ state: c.state, city: c.city, church: c.church }));
+  // Church pages render on first request and are cached from then on
+  // (see [city]/page.tsx for why we don't pre-render all of these).
+  return [];
 }
 
 type PageProps = {

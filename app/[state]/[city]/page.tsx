@@ -2,9 +2,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getChurchesByCity, getAllCityPages } from "@/lib/churches";
 
+export const revalidate = 86400;
+
 export async function generateStaticParams() {
-  const cities = getAllCityPages();
-  return cities.map((c) => ({ state: c.stateSlug, city: c.citySlug }));
+  // Pre-render only the biggest cities at build time; the long tail
+  // renders on first request and is cached (avoids Vercel build timeouts
+  // from pre-rendering thousands of pages up front).
+  const topCities = getAllCityPages()
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 200);
+  return topCities.map((c) => ({ state: c.stateSlug, city: c.citySlug }));
 }
 
 type PageProps = {
